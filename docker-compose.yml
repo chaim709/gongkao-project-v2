@@ -1,0 +1,47 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gongkao_db}
+      POSTGRES_USER: ${POSTGRES_USER:-gongkao_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gongkao_pass}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"  # 外部5433，避免与本地PostgreSQL冲突
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gongkao_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-gongkao_user}:${POSTGRES_PASSWORD:-gongkao_pass}@db:5432/${POSTGRES_DB:-gongkao_db}
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY environment variable is required}
+      ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRE_MINUTES: 120
+      DEBUG: "false"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+    volumes:
+      - uploads:/app/uploads
+    ports:
+      - "8001:8000"  # 外部8001，避免冲突
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "9000:80"  # 外部9000，避免端口冲突
+
+volumes:
+  pgdata:
+  uploads:
