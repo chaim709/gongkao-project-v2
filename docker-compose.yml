@@ -1,6 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
+    container_name: gongkao-guanli-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gongkao_db}
@@ -9,7 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5433:5432"  # 外部5433，避免与本地PostgreSQL冲突
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gongkao_user}"]
       interval: 5s
@@ -18,6 +19,7 @@ services:
 
   backend:
     build: ./backend
+    container_name: gongkao-guanli-backend
     restart: unless-stopped
     depends_on:
       db:
@@ -32,15 +34,16 @@ services:
     volumes:
       - uploads:/app/uploads
     ports:
-      - "8001:8000"  # 外部8001，避免冲突
+      - "8001:8000"
 
   frontend:
     build: ./frontend
+    container_name: gongkao-guanli-frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "9000:80"  # 外部9000，避免端口冲突
+      - "8888:80"
 
 volumes:
   pgdata:

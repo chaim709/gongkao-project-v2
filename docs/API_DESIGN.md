@@ -2,7 +2,8 @@
 
 ## API规范
 
-**Base URL**: `http://192.168.1.15:8000/api/v1`
+**Base URL（前端同源访问）**: `/api/v1`
+**Base URL（当前线上后端直连调试）**: `http://192.168.1.15:8001/api/v1`
 **认证方式**: JWT Token
 **数据格式**: JSON
 

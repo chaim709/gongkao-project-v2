@@ -5,7 +5,7 @@
 ### Q: 登录不了怎么办？
 **A**:
 1. 确认用户名和密码是否正确（初始密码见操作手册）
-2. 检查后端服务是否正常运行：访问 http://localhost:8000/health
+2. 检查服务是否正常运行：访问 http://localhost:8888/health
 3. 检查浏览器控制台是否有网络错误
 
 ### Q: 页面空白或加载不出来？
@@ -51,7 +51,7 @@
 gunzip backups/gongkao_db_20260306.sql.gz
 
 # 恢复
-docker compose -f docker-compose.prod.yml exec -T db \
+docker compose -f docker-compose.yml --env-file .env exec -T db \
   psql -U gongkao_user gongkao_db < backups/gongkao_db_20260306.sql
 ```
 
@@ -69,9 +69,15 @@ git pull
 ./deploy.sh update
 ```
 
+如需显式使用 `prod` 方案：
+
+```bash
+COMPOSE_FILE=docker-compose.prod.yml ENV_FILE=.env.production ./deploy.sh update
+```
+
 ### Q: 磁盘空间不足？
 1. 清理旧的 Docker 镜像：`docker system prune -a`
-2. 清理旧备份：旧备份会自动清理（保留30��）
+2. 清理旧备份：旧备份会自动清理（保留30天）
 3. 清理上传文件中的过期文件
 
 ---

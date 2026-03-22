@@ -5,16 +5,32 @@ set -e
 # 用法: ./deploy.sh [start|stop|restart|status|logs|backup|update]
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-COMPOSE_FILE="docker-compose.prod.yml"
-ENV_FILE=".env.production"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+ENV_FILE="${ENV_FILE:-.env}"
+DOCKER_BIN="${DOCKER_BIN:-$(command -v docker 2>/dev/null || echo /usr/local/bin/docker)}"
 
 cd "$PROJECT_DIR"
+
+get_http_port() {
+    local http_port
+    http_port=$(grep '^HTTP_PORT=' "$ENV_FILE" 2>/dev/null | cut -d= -f2 || true)
+    if [ -z "$http_port" ]; then
+        http_port="8888"
+    fi
+    echo "$http_port"
+}
+
+get_health_url() {
+    local http_port
+    http_port=$(get_http_port)
+    echo "http://localhost:${http_port}/health"
+}
 
 # 检查环境变量文件
 check_env() {
     if [ ! -f "$ENV_FILE" ]; then
         echo "错误: 未找到 $ENV_FILE"
-        echo "请复制 .env.production 并修改配置"
+        echo "请复制 .env 并修改配置"
         exit 1
     fi
 
@@ -28,7 +44,9 @@ check_env() {
 start() {
     check_env
     echo "启动公考管理系统..."
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
+    echo "COMPOSE_FILE=$COMPOSE_FILE"
+    echo "ENV_FILE=$ENV_FILE"
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
     echo ""
     echo "等待服务启动..."
     sleep 5
@@ -37,7 +55,7 @@ start() {
 
 stop() {
     echo "停止公考管理系统..."
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" down
     echo "已停止"
 }
 
@@ -48,22 +66,23 @@ restart() {
 
 status() {
     echo "========== 服务状态 =========="
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
+    echo "COMPOSE_FILE=$COMPOSE_FILE"
+    echo "ENV_FILE=$ENV_FILE"
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" ps
     echo ""
 
     # 健康检查
-    HTTP_PORT=$(grep HTTP_PORT "$ENV_FILE" 2>/dev/null | cut -d= -f2 || echo "80")
-    HTTP_PORT=${HTTP_PORT:-80}
-    if curl -sf "http://localhost:${HTTP_PORT}/health" > /dev/null 2>&1; then
+    HEALTH_URL=$(get_health_url)
+    if curl -sf "$HEALTH_URL" > /dev/null 2>&1; then
         echo "健康检查: ✅ 服务正常"
     else
-        echo "健康检查: ❌ 服务异常"
+        echo "健康检查: ❌ 服务异常 ($HEALTH_URL)"
     fi
 }
 
 logs() {
     SERVICE=${2:-""}
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs -f --tail=100 $SERVICE
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" logs -f --tail=100 $SERVICE
 }
 
 backup() {
@@ -73,7 +92,7 @@ backup() {
     BACKUP_FILE="$BACKUP_DIR/gongkao_db_${TIMESTAMP}.sql"
 
     echo "备份数据库..."
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" exec -T db \
         pg_dump -U "$(grep POSTGRES_USER $ENV_FILE | cut -d= -f2)" \
         "$(grep POSTGRES_DB $ENV_FILE | cut -d= -f2)" > "$BACKUP_FILE"
 
@@ -90,7 +109,7 @@ update() {
     echo "更新部署..."
     backup
     echo ""
-    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
+    "$DOCKER_BIN" compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --build
     echo ""
     echo "等待服务启动..."
     sleep 5
@@ -110,6 +129,10 @@ case "${1:-help}" in
         echo "公考管理系统 V2 - 部署管理"
         echo ""
         echo "用法: $0 <command>"
+        echo ""
+        echo "可选环境变量:"
+        echo "  COMPOSE_FILE=docker-compose.yml"
+        echo "  ENV_FILE=.env"
         echo ""
         echo "命令:"
         echo "  start    启动服务"
