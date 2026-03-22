@@ -3,7 +3,7 @@ import { Input, Select, Tag, Space, Button, message } from 'antd';
 import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { positionApi } from '../../api/positions';
-import SelectionModePanel from '../../components/positions/SelectionModePanel';
+import ShiyeSelectionPanel, { type ShiyeSelectionConditions } from '../../components/positions/ShiyeSelectionPanel';
 import PositionPageFrame from '../../components/positions/PositionPageFrame';
 import {
   PositionDetailInfoCard,
@@ -14,15 +14,6 @@ import {
 import usePositionPageState from '../../components/positions/usePositionPageState';
 import type { Position, MatchResult, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
-
-interface SelectionConditions {
-  education: string;
-  major: string;
-  political_status?: string;
-  work_years?: number;
-  gender?: string;
-  student_id?: number;
-}
 
 const DEFAULT_VISIBLE_COLUMNS = [
   'title',
@@ -48,10 +39,11 @@ export default function ShiyePositionList() {
   const [location, setLocation] = useState<string>();
   const [education, setEducation] = useState<string>();
   const [examCategory, setExamCategory] = useState<string>();
+  const [postNatures, setPostNatures] = useState<string[]>([]);
   const [fundingSource, setFundingSource] = useState<string>();
   const [recruitmentTarget, setRecruitmentTarget] = useState<string>();
-  const [postNatures, setPostNatures] = useState<string[]>([]);
-  const [recommendationTiers, setRecommendationTiers] = useState<string[]>([]);
+  const [excludedRiskTags, setExcludedRiskTags] = useState<string[]>([]);
+  const [recommendationTier, setRecommendationTier] = useState<string>();
 
   // 选岗模式状态
   const [selectionMode, setSelectionMode] = useState(false);
@@ -59,7 +51,7 @@ export default function ShiyePositionList() {
   const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [matchSummary, setMatchSummary] = useState<MatchSummary>();
   const [matchLoading, setMatchLoading] = useState(false);
-  const [matchConditions, setMatchConditions] = useState<SelectionConditions | null>(null);
+  const [matchConditions, setMatchConditions] = useState<ShiyeSelectionConditions | null>(null);
 
   const [reportLoading, setReportLoading] = useState(false);
 
@@ -147,7 +139,7 @@ export default function ShiyePositionList() {
     enabled: !selectionMode,
   });
 
-  const buildSelectionCriteria = (conditions: SelectionConditions) => ({
+  const buildSelectionCriteria = (conditions: ShiyeSelectionConditions) => ({
     year: matchYear,
     education: conditions.education,
     major: conditions.major,
@@ -156,16 +148,18 @@ export default function ShiyePositionList() {
     gender: conditions.gender,
     city,
     location,
-    exam_category: examCategory,
-    funding_source: fundingSource,
-    recruitment_target: recruitmentTarget,
+    funding_sources: fundingSource ? [fundingSource] : [],
+    recruitment_targets: recruitmentTarget ? [recruitmentTarget] : [],
     post_natures: postNatures,
-    recommendation_tiers: recommendationTiers,
+    preferred_post_natures: postNatures,
+    excluded_risk_tags: excludedRiskTags,
+    recommendation_tier: recommendationTier,
+    include_manual_review: conditions.include_manual_review ?? true,
     sort_by: sortBy,
     sort_order: sortOrder,
   });
 
-  const buildSelectionPayload = (conditions: SelectionConditions) => ({
+  const buildSelectionPayload = (conditions: ShiyeSelectionConditions) => ({
     ...buildSelectionCriteria(conditions),
     page: params.page,
     page_size: params.page_size,
@@ -175,12 +169,16 @@ export default function ShiyePositionList() {
     setMatchResult(null);
     setMatchSummary(undefined);
     setMatchConditions(null);
-    setRecommendationTiers([]);
+    setPostNatures([]);
+    setFundingSource(undefined);
+    setRecruitmentTarget(undefined);
+    setExcludedRiskTags([]);
+    setRecommendationTier(undefined);
     clearSelectedRowKeys();
     closeCompare();
   };
 
-  const handleMatch = async (conditions: SelectionConditions) => {
+  const handleMatch = async (conditions: ShiyeSelectionConditions) => {
     setMatchLoading(true);
     setMatchConditions(conditions);
     try {
@@ -198,7 +196,7 @@ export default function ShiyePositionList() {
     if (selectionMode && matchConditions) {
       void handleMatch(matchConditions);
     }
-  }, [selectionMode, matchYear, params.page, params.page_size, sortBy, sortOrder, city, location, examCategory, fundingSource, recruitmentTarget, postNatures, recommendationTiers]);
+  }, [selectionMode, matchYear, params.page, params.page_size, sortBy, sortOrder, city, location, fundingSource, recruitmentTarget, postNatures, excludedRiskTags, recommendationTier]);
 
   const handleGenerateReport = async () => {
     if (selectedRowKeys.length === 0) {
@@ -212,7 +210,6 @@ export default function ShiyePositionList() {
         position_ids: selectedRowKeys,
         exam_type: '事业单位',
         ...buildSelectionCriteria(matchConditions || { education: '', major: '' }),
-        include_manual_review: true,
       });
       message.success('报告已生成并下载');
     } catch {
@@ -292,12 +289,19 @@ export default function ShiyePositionList() {
     recruitment_count: { title: '招录', dataIndex: 'recruitment_count', width: 60, align: 'center' },
     funding_source: {
       title: '经费来源', dataIndex: 'funding_source', width: 100,
-      render: (v: string) => {
+      render: (v: string, record: Position) => {
         const colors: Record<string, string> = { '全额拨款': 'green', '差额拨款': 'orange', '自收自支': 'red' };
-        return v ? <Tag color={colors[v] || 'default'}>{v}</Tag> : '-';
+        const label = record.normalized_funding_source || v;
+        return label ? <Tag color={colors[label] || 'default'}>{label}</Tag> : '-';
       },
     },
-    recruitment_target: { title: '招聘对象', dataIndex: 'recruitment_target', width: 100 },
+    recruitment_target: {
+      title: '招聘对象',
+      dataIndex: 'recruitment_target',
+      width: 100,
+      render: (v: string, record: Position) =>
+        record.normalized_recruitment_target || v || '-',
+    },
     apply_count: {
       title: '报名人数', dataIndex: 'apply_count', width: 90, align: 'center',
       render: (v: number) => v ?? '-',
@@ -369,44 +373,84 @@ export default function ShiyePositionList() {
         <Select
           placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
           onChange={(v) => { setLocation(v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.locations || []).map((l: string) => ({ value: l, label: l }))}
+          options={(
+            shiyeFilterOptions?.city_locations?.[city] ||
+            shiyeFilterOptions?.locations ||
+            []
+          ).map((l: string) => ({ value: l, label: l }))}
         />
       )}
-      <Select
-        placeholder="笔试类别" value={examCategory} allowClear style={{ width: 120 }}
-        onChange={(v) => { setExamCategory(v); resetToFirstPage(); }}
-        options={((selectionMode ? shiyeFilterOptions?.exam_categories : filterOptions?.exam_categories) || []).map((c: string) => ({ value: c, label: c }))}
-      />
-      <Select
-        placeholder="经费来源" value={fundingSource} allowClear style={{ width: 120 }}
-        onChange={(v) => { setFundingSource(v); resetToFirstPage(); }}
-        options={((selectionMode ? shiyeFilterOptions?.funding_sources : filterOptions?.funding_sources) || []).map((f: string) => ({ value: f, label: f }))}
-      />
-      <Select
-        placeholder="招聘对象" value={recruitmentTarget} allowClear style={{ width: 120 }}
-        onChange={(v) => { setRecruitmentTarget(v); resetToFirstPage(); }}
-        options={((selectionMode ? shiyeFilterOptions?.recruitment_targets : filterOptions?.recruitment_targets) || []).map((r: string) => ({ value: r, label: r }))}
-      />
       {selectionMode && (
         <Select
           mode="multiple"
-          placeholder="岗位性质偏好"
+          placeholder="岗位性质"
           value={postNatures}
           allowClear
-          style={{ width: 220 }}
+          style={{ width: 200 }}
           onChange={(v) => { setPostNatures(v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗', '待确认']).map((nature: string) => ({ value: nature, label: nature }))}
+          options={(shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗']).map((nature: string) => ({ value: nature, label: nature }))}
+        />
+      )}
+      {selectionMode && (
+        <Select
+          placeholder="招聘对象"
+          value={recruitmentTarget}
+          allowClear
+          style={{ width: 150 }}
+          onChange={(v) => { setRecruitmentTarget(v === '不限' ? undefined : v); resetToFirstPage(); }}
+          options={(shiyeFilterOptions?.recruitment_targets || []).map((item: string) => ({ value: item, label: item }))}
+        />
+      )}
+      {selectionMode && (
+        <Select
+          placeholder="经费来源"
+          value={fundingSource}
+          allowClear
+          style={{ width: 150 }}
+          onChange={(v) => { setFundingSource(v === '不限' ? undefined : v); resetToFirstPage(); }}
+          options={(shiyeFilterOptions?.funding_sources || []).map((item: string) => ({ value: item, label: item }))}
         />
       )}
       {selectionMode && (
         <Select
           mode="multiple"
-          placeholder="推荐层级筛选"
-          value={recommendationTiers}
+          placeholder="风险避雷"
+          value={excludedRiskTags}
           allowClear
           style={{ width: 220 }}
-          onChange={(v) => { setRecommendationTiers(v); resetToFirstPage(); }}
+          onChange={(v) => { setExcludedRiskTags(v); resetToFirstPage(); }}
+          options={(shiyeFilterOptions?.risk_tags || []).map((item: string) => ({ value: item, label: item }))}
+        />
+      )}
+      {selectionMode && (
+        <Select
+          placeholder="推荐层级"
+          value={recommendationTier}
+          allowClear
+          style={{ width: 130 }}
+          onChange={(v) => { setRecommendationTier(v); resetToFirstPage(); }}
           options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
+        />
+      )}
+      {!selectionMode && (
+        <Select
+          placeholder="笔试类别" value={examCategory} allowClear style={{ width: 120 }}
+          onChange={(v) => { setExamCategory(v); resetToFirstPage(); }}
+          options={(filterOptions?.exam_categories || []).map((c: string) => ({ value: c, label: c }))}
+        />
+      )}
+      {!selectionMode && (
+        <Select
+          placeholder="经费来源" value={fundingSource} allowClear style={{ width: 120 }}
+          onChange={(v) => { setFundingSource(v); resetToFirstPage(); }}
+          options={(filterOptions?.funding_sources || []).map((f: string) => ({ value: f, label: f }))}
+        />
+      )}
+      {!selectionMode && (
+        <Select
+          placeholder="招聘对象" value={recruitmentTarget} allowClear style={{ width: 120 }}
+          onChange={(v) => { setRecruitmentTarget(v); resetToFirstPage(); }}
+          options={(filterOptions?.recruitment_targets || []).map((r: string) => ({ value: r, label: r }))}
         />
       )}
       {!selectionMode && (
@@ -430,11 +474,11 @@ export default function ShiyePositionList() {
           { key: 'position_code', label: '岗位代码', value: selectedPosition.position_code || '-' },
           { key: 'city', label: '地市', value: selectedPosition.city || '-' },
           { key: 'location', label: '区县', value: selectedPosition.location || '-' },
-          { key: 'funding_source', label: '经费来源', value: selectedPosition.funding_source || '-' },
+          { key: 'funding_source', label: '经费来源', value: selectedPosition.normalized_funding_source || selectedPosition.funding_source || '-' },
           { key: 'exam_category', label: '笔试类别', value: selectedPosition.exam_category || '-' },
           { key: 'recruitment_count', label: '招录人数', value: selectedPosition.recruitment_count },
           { key: 'exam_ratio', label: '开考比例', value: selectedPosition.exam_ratio || '-' },
-          { key: 'recruitment_target', label: '招聘对象', value: selectedPosition.recruitment_target || '-' },
+          { key: 'recruitment_target', label: '招聘对象', value: selectedPosition.normalized_recruitment_target || selectedPosition.recruitment_target || '-' },
         ]}
       />
       {selectionMode && (
@@ -503,13 +547,14 @@ export default function ShiyePositionList() {
         }
       }}
       selectionPanel={selectionMode ? (
-        <SelectionModePanel
-          year={matchYear} examType="事业单位"
-          onYearChange={setMatchYear} onExamTypeChange={() => {}}
+        <ShiyeSelectionPanel
+          year={matchYear}
+          onYearChange={setMatchYear}
           onMatch={handleMatch}
           onClear={() => { setSelectionMode(false); clearSelectionState(); }}
-          matchSummary={matchSummary} loading={matchLoading}
-          yearOptions={filterOptions?.years || []} examTypeOptions={['事业单位']}
+          matchSummary={matchSummary}
+          loading={matchLoading}
+          yearOptions={filterOptions?.years || []}
         />
       ) : null}
       stats={statsCards}

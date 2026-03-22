@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
@@ -55,7 +55,6 @@ class PositionResponse(PositionBase):
     remark: Optional[str] = None
     exam_weight_ratio: Optional[str] = None
     description: Optional[str] = None
-
     model_config = {"from_attributes": True}
 
 
@@ -81,6 +80,18 @@ class PositionFilterOptions(BaseModel):
     cities: list[str]
     educations: list[str]
     exam_categories: list[str]
+
+
+class ShiyeSelectionFilterOptionsResponse(BaseModel):
+    years: list[int] = Field(default_factory=list)
+    cities: list[str] = Field(default_factory=list)
+    locations: list[str] = Field(default_factory=list)
+    funding_sources: list[str] = Field(default_factory=list)
+    recruitment_targets: list[str] = Field(default_factory=list)
+    post_natures: list[str] = Field(default_factory=list)
+    risk_tags: list[str] = Field(default_factory=list)
+    recommendation_tiers: list[str] = Field(default_factory=list)
+    city_locations: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class PositionMatchFilterRequest(BaseModel):
@@ -116,8 +127,12 @@ class ShiyeSelectionSearchRequest(BaseModel):
     exam_category: Optional[str] = None
     funding_source: Optional[str] = None
     recruitment_target: Optional[str] = None
-    post_natures: list[str] = []
-    recommendation_tiers: list[str] = []
+    funding_sources: list[str] = Field(default_factory=list)
+    recruitment_targets: list[str] = Field(default_factory=list)
+    post_natures: list[str] = Field(default_factory=list)
+    excluded_risk_tags: list[str] = Field(default_factory=list)
+    recommendation_tiers: list[str] = Field(default_factory=list)
+    recommendation_tier: Optional[str] = None
     include_manual_review: bool = True
     page: int = 1
     page_size: int = 20
@@ -141,8 +156,12 @@ class PDFReportRequest(BaseModel):
     exam_category: Optional[str] = None
     funding_source: Optional[str] = None
     recruitment_target: Optional[str] = None
-    post_natures: list[str] = []
-    recommendation_tiers: list[str] = []
+    funding_sources: list[str] = Field(default_factory=list)
+    recruitment_targets: list[str] = Field(default_factory=list)
+    post_natures: list[str] = Field(default_factory=list)
+    excluded_risk_tags: list[str] = Field(default_factory=list)
+    recommendation_tiers: list[str] = Field(default_factory=list)
+    recommendation_tier: Optional[str] = None
     include_manual_review: bool = True
     sort_by: Optional[str] = None
     sort_order: Optional[str] = None

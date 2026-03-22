@@ -55,6 +55,8 @@ export interface Position {
   risk_reasons?: string[];
   risk_score?: number;
   manual_review_flags?: string[];
+  normalized_funding_source?: string;
+  normalized_recruitment_target?: string;
 }
 
 export interface PositionFilterOptions {
@@ -123,8 +125,9 @@ export interface ShiyeSelectionFilterOptions {
   years: number[];
   cities: string[];
   locations: string[];
-  exam_categories: string[];
   funding_sources: string[];
   recruitment_targets: string[];
   post_natures: string[];
+  risk_tags: string[];
+  city_locations?: Record<string, string[]>;
 }

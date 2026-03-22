@@ -13,8 +13,108 @@ os.environ.setdefault("SECRET_KEY", "test-secret")
 
 from app.services.position_match_service import PositionMatchService
 from app.services.selection.risk_rules import RiskEvaluationResult, RiskRules
+from app.services.selection.shiye_filter_normalizers import (
+    normalize_funding_source,
+    normalize_post_nature,
+    normalize_recruitment_target,
+    should_exclude_by_risk,
+)
 from app.services.selection.shiye_selection_service import ShiyeSelectionService
 from app.services.system_setting_service import SystemSettingService
+
+
+class FakeExecuteResult:
+    def __init__(self, positions):
+        self._positions = positions
+
+    def scalars(self):
+        return self
+
+    def all(self):
+        return self._positions
+
+
+class FakeDB:
+    def __init__(self, positions):
+        self._positions = positions
+        self.statement = None
+
+    async def execute(self, statement):
+        self.statement = statement
+        return FakeExecuteResult(self._positions)
+
+
+def build_position(**overrides):
+    data = {
+        "id": 1,
+        "title": "岗位",
+        "year": 2025,
+        "exam_type": "事业单位",
+        "city": "南京市",
+        "location": "南京市",
+        "funding_source": None,
+        "recruitment_target": None,
+        "exam_category": "管理类",
+        "education": "本科及以上",
+        "major": "不限",
+        "recruitment_count": 1,
+        "competition_ratio": 10,
+        "apply_count": 10,
+        "successful_applicants": None,
+        "min_interview_score": 55,
+        "description": None,
+        "remark": None,
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def build_match_result(match_type: str = "unlimited_major_match"):
+    return {
+        "details": {
+            "education": True,
+            "major": True,
+            "political_status": True,
+            "work_experience": True,
+            "gender": True,
+        },
+        "condition_meta": {
+            "education": {"status": "hard_pass"},
+            "major": {
+                "status": "hard_pass",
+                "match_type": match_type,
+            },
+            "constraints": {
+                "manual_review_tags": [],
+                "display_tags": [],
+            },
+        },
+    }
+
+
+async def fake_get_shiye_tier_thresholds(_cls, _db):
+    return {
+        **SystemSettingService.DEFAULT_SHIYE_TIER_THRESHOLDS,
+        "sprint_min_score": 35,
+    }
+
+
+def patch_search_dependencies(monkeypatch, *, risk_evaluate=None, match_result=None):
+    monkeypatch.setattr(
+        PositionMatchService,
+        "match_position",
+        staticmethod(lambda **_kwargs: match_result or build_match_result()),
+    )
+    monkeypatch.setattr(
+        RiskRules,
+        "evaluate",
+        staticmethod(risk_evaluate or (lambda **_kwargs: RiskEvaluationResult())),
+    )
+    monkeypatch.setattr(
+        SystemSettingService,
+        "get_shiye_tier_thresholds",
+        classmethod(fake_get_shiye_tier_thresholds),
+    )
 
 
 @pytest.mark.unit
@@ -69,6 +169,17 @@ class TestShiyeSelectionService:
 
         assert ShiyeSelectionService._build_match_source(match_result) == "专业大类匹配"
 
+    def test_normalizes_decision_facing_filter_values(self):
+        assert normalize_post_nature("经济类（会计、审计）") == "专技岗"
+        assert normalize_post_nature("管理类") == "管理岗"
+        assert normalize_funding_source(None) == "不限"
+        assert normalize_funding_source("财政全额拨款") == "全额拨款"
+        assert normalize_recruitment_target(None) == "不限"
+        assert normalize_recruitment_target("2025年应届毕业生") == "应届毕业生"
+        assert normalize_recruitment_target("退役军人专项岗位") == "定向专项"
+        assert should_exclude_by_risk(["高竞争"], ["高竞争"]) is True
+        assert should_exclude_by_risk(["高竞争"], ["高分线"]) is False
+
     def test_default_sort_prefers_eligibility_then_post_nature_then_risk_then_difficulty(self):
         def build_item(
             item_id: int,
@@ -95,6 +206,7 @@ class TestShiyeSelectionService:
                 "match_source": match_source,
                 "post_nature": post_nature,
                 "risk_score": risk_score,
+                "risk_tags": [],
             }
 
         items = [
@@ -275,231 +387,94 @@ class TestShiyeSelectionService:
         assert items[1]["recommendation_tier"] == "冲刺"
 
     @pytest.mark.asyncio
-    async def test_post_nature_preference_does_not_filter_out_other_results(self, monkeypatch):
-        preferred_position = SimpleNamespace(
-            id=1,
-            title="管理岗岗位",
-            year=2025,
-            exam_type="事业单位",
-            city="南京市",
-            location="南京市",
-            funding_source=None,
-            recruitment_target=None,
-            exam_category="管理类",
-            education="本科及以上",
-            major="不限",
-            recruitment_count=1,
-            competition_ratio=15,
-            apply_count=15,
-            successful_applicants=None,
-            min_interview_score=70,
-            description=None,
-            remark=None,
-        )
-        non_preferred_position = SimpleNamespace(
-            id=2,
-            title="工勤岗岗位",
-            year=2025,
-            exam_type="事业单位",
-            city="南京市",
-            location="南京市",
-            funding_source=None,
-            recruitment_target=None,
-            exam_category="工勤类",
-            education="本科及以上",
-            major="不限",
-            recruitment_count=1,
-            competition_ratio=5,
-            apply_count=5,
-            successful_applicants=None,
-            min_interview_score=60,
-            description=None,
-            remark=None,
-        )
-
-        class FakeExecuteResult:
-            def __init__(self, positions):
-                self._positions = positions
-
-            def scalars(self):
-                return self
-
-            def all(self):
-                return self._positions
-
-        class FakeDB:
-            async def execute(self, _statement):
-                return FakeExecuteResult([non_preferred_position, preferred_position])
-
-        def fake_match_position(**_kwargs):
-            return {
-                "details": {
-                    "education": True,
-                    "major": True,
-                    "political_status": True,
-                    "work_experience": True,
-                    "gender": True,
-                },
-                "condition_meta": {
-                    "education": {"status": "hard_pass"},
-                    "major": {
-                        "status": "hard_pass",
-                        "match_type": "unlimited_major_match",
-                    },
-                    "constraints": {
-                        "manual_review_tags": [],
-                        "display_tags": [],
-                    },
-                },
-            }
-
-        monkeypatch.setattr(
-            PositionMatchService,
-            "match_position",
-            staticmethod(fake_match_position),
-        )
-        monkeypatch.setattr(
-            RiskRules,
-            "evaluate",
-            staticmethod(lambda **_kwargs: RiskEvaluationResult()),
-        )
-        async def fake_get_shiye_tier_thresholds(_cls, _db):
-            return {
-                **SystemSettingService.DEFAULT_SHIYE_TIER_THRESHOLDS,
-                "sprint_min_score": 35,
-            }
-        monkeypatch.setattr(
-            SystemSettingService,
-            "get_shiye_tier_thresholds",
-            classmethod(fake_get_shiye_tier_thresholds),
-        )
+    async def test_search_filters_by_normalized_dimensions_and_standardizes_output(
+        self,
+        monkeypatch,
+    ):
+        positions = [
+            build_position(id=1, title="不限管理岗", funding_source=None, recruitment_target=None),
+            build_position(
+                id=2,
+                title="全额应届管理岗",
+                funding_source="全额拨款",
+                recruitment_target="2025年应届毕业生",
+            ),
+            build_position(
+                id=3,
+                title="工勤社会岗",
+                exam_category="工勤类",
+                funding_source="差额拨款",
+                recruitment_target="社会人员",
+            ),
+        ]
+        patch_search_dependencies(monkeypatch)
 
         result = await ShiyeSelectionService.search(
-            db=FakeDB(),
+            db=FakeDB(positions),
             year=2025,
             education="本科",
             major="财务管理",
             post_natures=["管理岗"],
+            funding_sources=["不限"],
+            recruitment_targets=["不限"],
             page=1,
             page_size=10,
         )
 
-        assert result["total"] == 2
-        assert [item["position"].title for item in result["items"]] == [
-            "管理岗岗位",
-            "工勤岗岗位",
-        ]
-        assert "专业层级：专业精确匹配 > 专业大类匹配 > 专业不限" in result["summary"]["sort_basis"]
-        assert result["summary"]["sprint_count"] + result["summary"]["stable_count"] + result["summary"]["safe_count"] == 2
-        assert any("命中岗位性质偏好" in reason for reason in result["items"][0]["sort_reasons"])
-        assert result["items"][0]["recommendation_tier"] in {"冲刺", "稳妥", "保底"}
-        assert result["items"][0]["recommendation_reasons"]
+        assert result["total"] == 1
+        assert [item["position"].title for item in result["items"]] == ["不限管理岗"]
+        assert result["items"][0]["funding_source"] == "不限"
+        assert result["items"][0]["recruitment_target"] == "不限"
+        assert result["summary"]["total_positions"] == 1
+        assert result["summary"]["hard_pass"] == 1
+        assert "岗位性质偏好：管理岗 > 其他岗位" in result["summary"]["sort_basis"]
 
     @pytest.mark.asyncio
-    async def test_recommendation_tier_filter_applies_after_annotation(self, monkeypatch):
-        safe_position = SimpleNamespace(
-            id=1,
-            title="保底岗位",
-            year=2025,
-            exam_type="事业单位",
-            city="南京市",
-            location="南京市",
-            funding_source=None,
-            recruitment_target=None,
-            exam_category="管理类",
-            education="本科及以上",
-            major="不限",
-            recruitment_count=1,
-            competition_ratio=10,
-            apply_count=10,
-            successful_applicants=None,
-            min_interview_score=55,
-            description=None,
-            remark=None,
-        )
-        sprint_position = SimpleNamespace(
-            id=2,
-            title="冲刺岗位",
-            year=2025,
-            exam_type="事业单位",
-            city="南京市",
-            location="南京市",
-            funding_source=None,
-            recruitment_target=None,
-            exam_category="管理类",
-            education="本科及以上",
-            major="不限",
-            recruitment_count=1,
-            competition_ratio=120,
-            apply_count=120,
-            successful_applicants=None,
-            min_interview_score=78,
-            description=None,
-            remark=None,
-        )
+    async def test_excluded_risk_tags_filter_results_but_preserve_summary(self, monkeypatch):
+        positions = [
+            build_position(id=1, title="低风险岗位", competition_ratio=10, min_interview_score=55),
+            build_position(id=2, title="高竞争岗位", competition_ratio=150, min_interview_score=80),
+        ]
 
-        class FakeExecuteResult:
-            def __init__(self, positions):
-                self._positions = positions
+        def risk_evaluate(**kwargs):
+            is_high_risk = (kwargs.get("competition_ratio") or 0) >= 100
+            return RiskEvaluationResult(
+                risk_tags=("高竞争",) if is_high_risk else (),
+                risk_reasons=("竞争比高",) if is_high_risk else (),
+                risk_score=30 if is_high_risk else 0,
+            )
 
-            def scalars(self):
-                return self
-
-            def all(self):
-                return self._positions
-
-        class FakeDB:
-            async def execute(self, _statement):
-                return FakeExecuteResult([safe_position, sprint_position])
-
-        monkeypatch.setattr(
-            PositionMatchService,
-            "match_position",
-            staticmethod(
-                lambda **_kwargs: {
-                    "details": {
-                        "education": True,
-                        "major": True,
-                        "political_status": True,
-                        "work_experience": True,
-                        "gender": True,
-                    },
-                    "condition_meta": {
-                        "education": {"status": "hard_pass"},
-                        "major": {
-                            "status": "hard_pass",
-                            "match_type": "unlimited_major_match",
-                        },
-                        "constraints": {
-                            "manual_review_tags": [],
-                            "display_tags": [],
-                        },
-                    },
-                }
-            ),
-        )
-        monkeypatch.setattr(
-            RiskRules,
-            "evaluate",
-            staticmethod(lambda **_kwargs: RiskEvaluationResult()),
-        )
-        async def fake_get_shiye_tier_thresholds(_cls, _db):
-            return {
-                **SystemSettingService.DEFAULT_SHIYE_TIER_THRESHOLDS,
-                "sprint_min_score": 35,
-            }
-        monkeypatch.setattr(
-            SystemSettingService,
-            "get_shiye_tier_thresholds",
-            classmethod(fake_get_shiye_tier_thresholds),
-        )
+        patch_search_dependencies(monkeypatch, risk_evaluate=risk_evaluate)
 
         result = await ShiyeSelectionService.search(
-            db=FakeDB(),
+            db=FakeDB(positions),
             year=2025,
             education="本科",
             major="财务管理",
-            recommendation_tiers=["冲刺"],
+            excluded_risk_tags=["高竞争"],
+            page=1,
+            page_size=10,
+        )
+
+        assert result["total"] == 1
+        assert [item["position"].title for item in result["items"]] == ["低风险岗位"]
+        assert result["summary"]["total_positions"] == 2
+        assert result["summary"]["hard_pass"] == 2
+
+    @pytest.mark.asyncio
+    async def test_recommendation_tier_filter_applies_after_annotation(self, monkeypatch):
+        positions = [
+            build_position(id=1, title="保底岗位", competition_ratio=10, min_interview_score=55),
+            build_position(id=2, title="冲刺岗位", competition_ratio=120, min_interview_score=78),
+        ]
+        patch_search_dependencies(monkeypatch)
+
+        result = await ShiyeSelectionService.search(
+            db=FakeDB(positions),
+            year=2025,
+            education="本科",
+            major="财务管理",
+            recommendation_tier="冲刺",
             page=1,
             page_size=10,
         )
@@ -511,37 +486,36 @@ class TestShiyeSelectionService:
         assert result["summary"]["safe_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_exam_category_filter_is_applied_in_search_query(self, monkeypatch):
-        class FakeExecuteResult:
-            def scalars(self):
-                return self
+    async def test_legacy_raw_filters_are_normalized_without_sql_dimension_constraints(
+        self,
+        monkeypatch,
+    ):
+        positions = [
+            build_position(
+                id=1,
+                title="全额应届管理岗",
+                funding_source="全额拨款",
+                recruitment_target="2025年应届毕业生",
+            ),
+            build_position(
+                id=2,
+                title="差额社会专技岗",
+                exam_category="其他专技类",
+                funding_source="差额拨款",
+                recruitment_target="社会人员",
+            ),
+        ]
+        db = FakeDB(positions)
+        patch_search_dependencies(monkeypatch)
 
-            def all(self):
-                return []
-
-        class FakeDB:
-            statement = None
-
-            async def execute(self, statement):
-                self.statement = statement
-                return FakeExecuteResult()
-
-        async def fake_get_shiye_tier_thresholds(_cls, _db):
-            return SystemSettingService.DEFAULT_SHIYE_TIER_THRESHOLDS
-
-        monkeypatch.setattr(
-            SystemSettingService,
-            "get_shiye_tier_thresholds",
-            classmethod(fake_get_shiye_tier_thresholds),
-        )
-
-        db = FakeDB()
-        await ShiyeSelectionService.search(
+        result = await ShiyeSelectionService.search(
             db=db,
             year=2025,
             education="本科",
             major="财务管理",
             exam_category="管理类",
+            funding_source="全额拨款",
+            recruitment_target="2025年应届毕业生",
             page=1,
             page_size=10,
         )
@@ -553,4 +527,60 @@ class TestShiyeSelectionService:
             )
         )
 
-        assert "positions.exam_category = '管理类'" in compiled
+        assert result["total"] == 1
+        assert [item["position"].title for item in result["items"]] == ["全额应届管理岗"]
+        assert "AND positions.exam_category =" not in compiled
+        assert "AND positions.funding_source =" not in compiled
+        assert "AND positions.recruitment_target =" not in compiled
+
+    @pytest.mark.asyncio
+    async def test_get_filter_options_returns_normalized_decision_values(self, monkeypatch):
+        positions = [
+            build_position(
+                id=1,
+                city="南京市",
+                location="鼓楼区",
+                exam_category="管理类",
+                funding_source=None,
+                recruitment_target=None,
+                competition_ratio=10,
+                min_interview_score=55,
+            ),
+            build_position(
+                id=2,
+                city="南京市",
+                location="玄武区",
+                exam_category="其他专技类",
+                funding_source="差额拨款",
+                recruitment_target="2025年应届毕业生",
+                competition_ratio=160,
+                min_interview_score=80,
+            ),
+        ]
+
+        monkeypatch.setattr(
+            RiskRules,
+            "evaluate",
+            staticmethod(
+                lambda **kwargs: RiskEvaluationResult(
+                    risk_tags=("高竞争",)
+                    if (kwargs.get("competition_ratio") or 0) >= 100
+                    else (),
+                    risk_reasons=(),
+                    risk_score=30 if (kwargs.get("competition_ratio") or 0) >= 100 else 0,
+                )
+            ),
+        )
+
+        result = await ShiyeSelectionService.get_filter_options(
+            db=FakeDB(positions),
+            year=2025,
+        )
+
+        assert "exam_categories" not in result
+        assert result["post_natures"] == ["管理岗", "专技岗"]
+        assert result["funding_sources"] == ["不限", "差额拨款"]
+        assert result["recruitment_targets"] == ["不限", "应届毕业生"]
+        assert result["risk_tags"] == ["高竞争"]
+        assert result["recommendation_tiers"] == ["冲刺", "稳妥", "保底"]
+        assert result["city_locations"]["南京市"] == ["玄武区", "鼓楼区"]

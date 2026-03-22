@@ -9,8 +9,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.position import Position
 from app.services.position_match_service import PositionMatchService
-from app.services.selection.post_nature_rules import PostNatureRules
 from app.services.selection.risk_rules import RiskRules
+from app.services.selection.shiye_filter_normalizers import (
+    FUNDING_SOURCE_ORDER,
+    POST_NATURE_ORDER,
+    RECOMMENDATION_TIER_ORDER,
+    RECRUITMENT_TARGET_ORDER,
+    RISK_TAG_ORDER,
+    normalize_funding_source,
+    normalize_post_nature,
+    normalize_recommendation_tier,
+    normalize_recruitment_target,
+    normalize_risk_tag,
+    normalize_selection_values,
+    order_values,
+    should_exclude_by_risk,
+)
 from app.services.system_setting_service import SystemSettingService
 
 
@@ -47,8 +61,13 @@ class ShiyeSelectionService:
         exam_category: str | None = None,
         funding_source: str | None = None,
         recruitment_target: str | None = None,
+        funding_sources: list[str] | None = None,
+        recruitment_targets: list[str] | None = None,
         post_natures: list[str] | None = None,
+        preferred_post_natures: list[str] | None = None,
+        excluded_risk_tags: list[str] | None = None,
         recommendation_tiers: list[str] | None = None,
+        recommendation_tier: str | None = None,
         include_manual_review: bool = True,
         page: int = 1,
         page_size: int = 20,
@@ -63,29 +82,91 @@ class ShiyeSelectionService:
             base_filters.append(Position.city == city)
         if location:
             base_filters.append(Position.location == location)
-        if exam_category:
-            base_filters.append(Position.exam_category == exam_category)
-        if funding_source:
-            base_filters.append(Position.funding_source == funding_source)
-        if recruitment_target:
-            base_filters.append(Position.recruitment_target == recruitment_target)
 
         result = await db.execute(select(Position).where(and_(*base_filters)))
         positions = result.scalars().all()
 
-        score_thresholds = RiskRules.build_score_thresholds(list(positions))
-        competition_thresholds = RiskRules.build_competition_thresholds(list(positions))
+        normalized_post_natures = normalize_selection_values(
+            [exam_category, *(post_natures or [])],
+            normalizer=normalize_post_nature,
+        )
+        if preferred_post_natures is not None:
+            normalized_preferred_post_natures = normalize_selection_values(
+                preferred_post_natures,
+                normalizer=normalize_post_nature,
+            )
+        else:
+            normalized_preferred_post_natures = list(normalized_post_natures)
+        normalized_funding_sources = normalize_selection_values(
+            [funding_source, *(funding_sources or [])],
+            normalizer=normalize_funding_source,
+        )
+        normalized_recruitment_targets = normalize_selection_values(
+            [recruitment_target, *(recruitment_targets or [])],
+            normalizer=normalize_recruitment_target,
+        )
+        normalized_excluded_risk_tags = normalize_selection_values(
+            excluded_risk_tags,
+            normalizer=normalize_risk_tag,
+        )
+        normalized_recommendation_tiers = normalize_selection_values(
+            [recommendation_tier, *(recommendation_tiers or [])],
+            normalizer=normalize_recommendation_tier,
+        )
+
+        filtered_positions: list[dict[str, Any]] = []
+        for position in positions:
+            normalized_position = {
+                "position": position,
+                "post_nature": normalize_post_nature(position.exam_category),
+                "normalized_funding_source": normalize_funding_source(
+                    position.funding_source
+                ),
+                "normalized_recruitment_target": normalize_recruitment_target(
+                    position.recruitment_target
+                ),
+            }
+            if (
+                normalized_post_natures
+                and normalized_position["post_nature"] not in normalized_post_natures
+            ):
+                continue
+            if (
+                normalized_funding_sources
+                and normalized_position["normalized_funding_source"]
+                not in normalized_funding_sources
+            ):
+                continue
+            if (
+                normalized_recruitment_targets
+                and normalized_position["normalized_recruitment_target"]
+                not in normalized_recruitment_targets
+            ):
+                continue
+            filtered_positions.append(normalized_position)
+
+        score_thresholds = RiskRules.build_score_thresholds(
+            [item["position"] for item in filtered_positions]
+        )
+        competition_thresholds = RiskRules.build_competition_thresholds(
+            [item["position"] for item in filtered_positions]
+        )
 
         computed_items: list[dict[str, Any]] = []
         summary = {
-            "total_positions": len(positions),
+            "total_positions": len(filtered_positions),
             "hard_pass": 0,
             "manual_review_needed": 0,
             "hard_fail": 0,
         }
 
-        for position in positions:
-            post_nature = PostNatureRules.derive(position.exam_category)
+        for filtered_position in filtered_positions:
+            position = filtered_position["position"]
+            post_nature = filtered_position["post_nature"]
+            normalized_funding_source = filtered_position["normalized_funding_source"]
+            normalized_recruitment_target = filtered_position[
+                "normalized_recruitment_target"
+            ]
 
             match_result = PositionMatchService.match_position(
                 position=position,
@@ -114,6 +195,11 @@ class ShiyeSelectionService:
                 score_thresholds=score_thresholds,
                 competition_thresholds=competition_thresholds,
             )
+            if should_exclude_by_risk(
+                list(risk_result.risk_tags),
+                normalized_excluded_risk_tags,
+            ):
+                continue
             computed_items.append(
                 {
                     "position": position,
@@ -122,10 +208,12 @@ class ShiyeSelectionService:
                     "match_reasons": cls._build_match_reasons(
                         position=position,
                         match_result=match_result,
-                        post_nature=post_nature.post_nature,
+                        post_nature=post_nature,
                         manual_review_flags=eligibility["manual_review_flags"],
                     ),
-                    "post_nature": post_nature.post_nature,
+                    "post_nature": post_nature,
+                    "funding_source": normalized_funding_source,
+                    "recruitment_target": normalized_recruitment_target,
                     "risk_tags": list(risk_result.risk_tags),
                     "risk_reasons": list(risk_result.risk_reasons),
                     "risk_score": risk_result.risk_score,
@@ -137,28 +225,28 @@ class ShiyeSelectionService:
             computed_items,
             sort_by=sort_by,
             sort_order=sort_order,
-            preferred_post_natures=post_natures,
+            preferred_post_natures=normalized_preferred_post_natures,
         )
         tier_thresholds = await SystemSettingService.get_shiye_tier_thresholds(db)
         sort_basis = cls._build_sort_basis(
             sort_by=sort_by,
             sort_order=sort_order,
-            preferred_post_natures=post_natures,
+            preferred_post_natures=normalized_preferred_post_natures,
         )
         for item in computed_items:
             item["sort_reasons"] = cls._build_sort_reasons(
                 item=item,
                 sort_by=sort_by,
                 sort_order=sort_order,
-                preferred_post_natures=post_natures,
+                preferred_post_natures=normalized_preferred_post_natures,
             )
 
         tier_counts = cls._annotate_recommendation_tiers(
             computed_items,
             thresholds=tier_thresholds,
         )
-        if recommendation_tiers:
-            allowed_tiers = set(recommendation_tiers)
+        if normalized_recommendation_tiers:
+            allowed_tiers = set(normalized_recommendation_tiers)
             computed_items = [
                 item
                 for item in computed_items
@@ -200,34 +288,66 @@ class ShiyeSelectionService:
 
         cities = sorted({position.city for position in positions if position.city})
         locations = sorted({position.location for position in positions if position.location})
-        exam_categories = sorted(
-            {position.exam_category for position in positions if position.exam_category}
-        )
-        funding_sources = sorted(
-            {position.funding_source for position in positions if position.funding_source}
-        )
-        recruitment_targets = sorted(
-            {
-                position.recruitment_target
+        city_locations: dict[str, list[str]] = {}
+        for position in positions:
+            if not position.city or not position.location:
+                continue
+            city_locations.setdefault(position.city, [])
+            if position.location not in city_locations[position.city]:
+                city_locations[position.city].append(position.location)
+        city_locations = {
+            city: sorted(values)
+            for city, values in city_locations.items()
+        }
+        funding_sources = order_values(
+            (
+                normalize_funding_source(position.funding_source)
                 for position in positions
-                if position.recruitment_target
-            }
+            ),
+            FUNDING_SOURCE_ORDER,
         )
-        post_natures = sorted(
-            {
-                PostNatureRules.derive(position.exam_category).post_nature
+        recruitment_targets = order_values(
+            (
+                normalize_recruitment_target(position.recruitment_target)
                 for position in positions
-            }
+            ),
+            RECRUITMENT_TARGET_ORDER,
+        )
+        post_natures = order_values(
+            (normalize_post_nature(position.exam_category) for position in positions),
+            POST_NATURE_ORDER,
+        )
+        score_thresholds = RiskRules.build_score_thresholds(list(positions))
+        competition_thresholds = RiskRules.build_competition_thresholds(list(positions))
+        risk_tags = order_values(
+            (
+                risk_tag
+                for position in positions
+                for risk_tag in RiskRules.evaluate(
+                    competition_ratio=position.competition_ratio,
+                    apply_count=position.apply_count or position.successful_applicants,
+                    min_interview_score=position.min_interview_score,
+                    year=position.year,
+                    exam_category=position.exam_category,
+                    description=position.description,
+                    remark=position.remark,
+                    score_thresholds=score_thresholds,
+                    competition_thresholds=competition_thresholds,
+                ).risk_tags
+            ),
+            RISK_TAG_ORDER,
         )
 
         return {
             "years": [year],
             "cities": cities,
             "locations": locations,
-            "exam_categories": exam_categories,
             "funding_sources": funding_sources,
             "recruitment_targets": recruitment_targets,
             "post_natures": post_natures,
+            "risk_tags": risk_tags,
+            "recommendation_tiers": list(RECOMMENDATION_TIER_ORDER),
+            "city_locations": city_locations,
         }
 
     @classmethod

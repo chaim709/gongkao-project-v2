@@ -10,7 +10,7 @@ from app.schemas.position import (
     PositionCreate, PositionResponse, PositionListResponse,
     PositionFilterOptions, PositionMatchFilterRequest,
     PDFReportRequest, PositionCompareRequest, PositionFavoriteCreateRequest,
-    ShiyeSelectionSearchRequest,
+    ShiyeSelectionFilterOptionsResponse, ShiyeSelectionSearchRequest,
 )
 from typing import Optional, List
 import time
@@ -243,8 +243,12 @@ async def search_shiye_positions(
         exam_category=data.exam_category,
         funding_source=data.funding_source,
         recruitment_target=data.recruitment_target,
+        funding_sources=data.funding_sources,
+        recruitment_targets=data.recruitment_targets,
         post_natures=data.post_natures,
+        excluded_risk_tags=data.excluded_risk_tags,
         recommendation_tiers=data.recommendation_tiers,
+        recommendation_tier=data.recommendation_tier,
         include_manual_review=data.include_manual_review,
         page=data.page,
         page_size=data.page_size,
@@ -257,6 +261,8 @@ async def search_shiye_positions(
         serialized = PositionResponse.model_validate(item["position"]).model_dump()
         serialized.update(
             {
+                "funding_source": item["funding_source"],
+                "recruitment_target": item["recruitment_target"],
                 "eligibility_status": item["eligibility_status"],
                 "match_source": item["match_source"],
                 "match_reasons": item["match_reasons"],
@@ -281,7 +287,10 @@ async def search_shiye_positions(
     }
 
 
-@router.get("/shiye-selection/filter-options")
+@router.get(
+    "/shiye-selection/filter-options",
+    response_model=ShiyeSelectionFilterOptionsResponse,
+)
 async def get_shiye_selection_filter_options(
     year: int = Query(2025),
     current_user: User = Depends(get_current_user),
@@ -411,6 +420,21 @@ async def generate_pdf_report(
     """生成选岗报告 PDF"""
     from app.services.pdf_report_service import PDFReportService
 
+    report_funding_source = data.funding_source
+    if report_funding_source is None and len(data.funding_sources) == 1:
+        report_funding_source = data.funding_sources[0]
+
+    report_recruitment_target = data.recruitment_target
+    if report_recruitment_target is None and len(data.recruitment_targets) == 1:
+        report_recruitment_target = data.recruitment_targets[0]
+
+    report_recommendation_tiers = list(data.recommendation_tiers)
+    if (
+        data.recommendation_tier
+        and data.recommendation_tier not in report_recommendation_tiers
+    ):
+        report_recommendation_tiers.append(data.recommendation_tier)
+
     buffer = await PDFReportService.generate_report(
         db=db,
         student_id=data.student_id,
@@ -425,10 +449,10 @@ async def generate_pdf_report(
         city=data.city,
         location=data.location,
         exam_category=data.exam_category,
-        funding_source=data.funding_source,
-        recruitment_target=data.recruitment_target,
+        funding_source=report_funding_source,
+        recruitment_target=report_recruitment_target,
         post_natures=data.post_natures,
-        recommendation_tiers=data.recommendation_tiers,
+        recommendation_tiers=report_recommendation_tiers,
         include_manual_review=data.include_manual_review,
         sort_by=data.sort_by,
         sort_order=data.sort_order,
