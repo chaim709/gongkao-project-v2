@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import math
-import re
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -10,6 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.position import Position
 from app.services.position_match_service import PositionMatchService
+from app.services.selection.location_bucket_rules import (
+    CompiledPatternRule,
+    get_city_location_bucket_rule,
+)
 from app.services.selection.risk_rules import RiskRules
 from app.services.selection.shiye_filter_normalizers import (
     FUNDING_SOURCE_ORDER,
@@ -31,22 +34,6 @@ from app.services.system_setting_service import SystemSettingService
 
 class ShiyeSelectionService:
     """Search service for Jiangsu事业编选岗."""
-
-    SUQIAN_CITY = "宿迁市"
-    SUQIAN_CORE_LOCATION_ORDER = ("宿城区", "泗阳县", "泗洪县", "沭阳县", "宿豫")
-    SUQIAN_OPTIONAL_LOCATION_ORDER = ("市直", "经开区", "洋河新区", "湖滨新区")
-    SUQIAN_LOCATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-        (re.compile(r"宿城区"), "宿城区"),
-        (re.compile(r"泗阳县|泗阳"), "泗阳县"),
-        (re.compile(r"泗洪县|泗洪"), "泗洪县"),
-        (re.compile(r"沭阳县|沭阳"), "沭阳县"),
-        (re.compile(r"宿豫区|宿豫"), "宿豫"),
-    )
-    SUQIAN_SPECIAL_LOCATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-        (re.compile(r"经济技术开发区|经开区"), "经开区"),
-        (re.compile(r"洋河新区|洋河镇|洋河高级中学"), "洋河新区"),
-        (re.compile(r"湖滨新区|湖滨高级中学"), "湖滨新区"),
-    )
 
     MATCH_SOURCE_LABELS = {
         "exact_major_match": "专业精确匹配",
@@ -321,15 +308,12 @@ class ShiyeSelectionService:
             city_locations.setdefault(position.city, [])
             if selection_location not in city_locations[position.city]:
                 city_locations[position.city].append(selection_location)
+        for city in cities:
+            city_locations.setdefault(city, [])
         city_locations = {
             city: cls._complete_locations_for_city(city, values)
             for city, values in city_locations.items()
         }
-        if any(position.city == cls.SUQIAN_CITY for position in positions):
-            city_locations.setdefault(
-                cls.SUQIAN_CITY,
-                cls._complete_locations_for_city(cls.SUQIAN_CITY, []),
-            )
         locations = sorted(
             {
                 location
@@ -391,39 +375,36 @@ class ShiyeSelectionService:
     @classmethod
     def _derive_selection_location(cls, position: Position) -> str | None:
         raw_location = (position.location or "").strip() or None
-        if position.city != cls.SUQIAN_CITY:
+        city_rule = get_city_location_bucket_rule(position.city)
+        if city_rule is None:
             return raw_location
 
-        inferred = cls._infer_suqian_location(position)
+        inferred = cls._match_location_bucket(position, city_rule.district_patterns)
         if inferred:
             return inferred
-        special_location = cls._infer_suqian_special_location(position)
+        special_location = cls._match_location_bucket(position, city_rule.special_patterns)
         if special_location:
             return special_location
-        if raw_location in {"宿迁", "宿迁市"}:
-            return "市直"
+        if raw_location in city_rule.raw_city_values:
+            return city_rule.default_bucket
         return raw_location
 
     @classmethod
-    def _infer_suqian_location(cls, position: Position) -> str | None:
-        texts = (
-            position.location,
-            position.supervising_dept,
-            position.department,
-            position.title,
-            position.description,
-            position.remark,
-        )
-        for text in texts:
+    def _match_location_bucket(
+        cls,
+        position: Position,
+        pattern_rules: tuple[CompiledPatternRule, ...],
+    ) -> str | None:
+        for text in cls._iter_location_match_texts(position):
             normalized = str(text or "").replace(" ", "")
-            for pattern, label in cls.SUQIAN_LOCATION_PATTERNS:
+            for pattern, label in pattern_rules:
                 if pattern.search(normalized):
                     return label
         return None
 
     @classmethod
-    def _infer_suqian_special_location(cls, position: Position) -> str | None:
-        texts = (
+    def _iter_location_match_texts(cls, position: Position) -> tuple[Any, ...]:
+        return (
             position.location,
             position.supervising_dept,
             position.department,
@@ -431,12 +412,6 @@ class ShiyeSelectionService:
             position.description,
             position.remark,
         )
-        for text in texts:
-            normalized = str(text or "").replace(" ", "")
-            for pattern, label in cls.SUQIAN_SPECIAL_LOCATION_PATTERNS:
-                if pattern.search(normalized):
-                    return label
-        return None
 
     @classmethod
     def _order_locations_for_city(
@@ -445,13 +420,11 @@ class ShiyeSelectionService:
         values: list[str],
     ) -> list[str]:
         unique_values = {value for value in values if value}
-        if city != cls.SUQIAN_CITY:
+        city_rule = get_city_location_bucket_rule(city)
+        if city_rule is None:
             return sorted(unique_values)
 
-        ordered_labels = cls.SUQIAN_CORE_LOCATION_ORDER + cls.SUQIAN_OPTIONAL_LOCATION_ORDER
-        ordered = [
-            label for label in ordered_labels if label in unique_values
-        ]
+        ordered = [label for label in city_rule.ordered_locations if label in unique_values]
         remaining = sorted(unique_values - set(ordered))
         return ordered + remaining
 
@@ -462,8 +435,9 @@ class ShiyeSelectionService:
         values: list[str],
     ) -> list[str]:
         unique_values = {value for value in values if value}
-        if city == cls.SUQIAN_CITY:
-            unique_values.update(cls.SUQIAN_CORE_LOCATION_ORDER)
+        city_rule = get_city_location_bucket_rule(city)
+        if city_rule is not None:
+            unique_values.update(city_rule.required_locations)
         return cls._order_locations_for_city(city, list(unique_values))
 
     @classmethod

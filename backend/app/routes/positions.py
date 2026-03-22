@@ -97,14 +97,9 @@ async def get_filter_options(
             derived_city_locations.setdefault(position.city, [])
             if derived_location not in derived_city_locations[position.city]:
                 derived_city_locations[position.city].append(derived_location)
-        if any(position.city == ShiyeSelectionService.SUQIAN_CITY for position in shiye_positions):
-            derived_city_locations.setdefault(
-                ShiyeSelectionService.SUQIAN_CITY,
-                ShiyeSelectionService._complete_locations_for_city(
-                    ShiyeSelectionService.SUQIAN_CITY,
-                    [],
-                ),
-            )
+        for position in shiye_positions:
+            if position.city:
+                derived_city_locations.setdefault(position.city, [])
         city_locations = {
             city: ShiyeSelectionService._complete_locations_for_city(city, values)
             for city, values in derived_city_locations.items()
