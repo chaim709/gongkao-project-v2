@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Table, Input, Select, Tag, Card, Row, Col, Statistic, Space, Drawer, Button, Modal, Checkbox, Switch, message } from 'antd';
-import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, UploadOutlined, SettingOutlined, AimOutlined, SwapOutlined, FilePdfOutlined } from '@ant-design/icons';
+import { Input, Select, Tag, Card, Row, Col, Statistic, Space, Button, message } from 'antd';
+import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, UploadOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { positionApi } from '../../api/positions';
 import SelectionModePanel from '../../components/positions/SelectionModePanel';
-import PositionCompare from '../../components/positions/PositionCompare';
+import PositionPageFrame from '../../components/positions/PositionPageFrame';
 import type { Position, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -76,6 +76,14 @@ export default function PositionList() {
   const saveColumnConfig = () => {
     localStorage.setItem('position_columns', JSON.stringify(visibleColumns));
     setColumnSettingOpen(false);
+  };
+
+  const clearSelectionState = () => {
+    setMatchResult(null);
+    setMatchSummary(undefined);
+    setMatchConditions(null);
+    setSelectedRowKeys([]);
+    setCompareOpen(false);
   };
 
   // 动态获取筛选选项
@@ -227,33 +235,146 @@ export default function PositionList() {
     .map(key => columnMap[key])
     .filter(Boolean);
 
-  return (
-    <div>
-      {/* 模式切换 */}
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <AimOutlined style={{ color: selectionMode ? '#52c41a' : '#999' }} />
-          <Switch
-            checked={selectionMode}
-            onChange={(checked) => {
-              setSelectionMode(checked);
-              if (!checked) {
-                setMatchResult(null);
-                setMatchSummary(undefined);
-                setMatchConditions(null);
-              }
-            }}
-            checkedChildren="选岗模式"
-            unCheckedChildren="浏览模式"
-          />
-          {selectionMode && (
-            <Tag color="green">选岗模式已开启 - 输入学员条件后自动匹配可报岗位</Tag>
-          )}
-        </Space>
-      </div>
+  const statsCards = [
+    { key: 'total_positions', title: '岗位总数', value: stats?.total_positions || 0, prefix: <TrophyOutlined /> },
+    { key: 'total_recruitment', title: '招录总人数', value: stats?.total_recruitment || 0, prefix: <TeamOutlined /> },
+    { key: 'coverage', title: '覆盖地区', value: stats?.by_city?.length || 0, prefix: <EnvironmentOutlined /> },
+    { key: 'filtered_total', title: '筛选结果', value: currentData?.total || 0, suffix: '条' },
+  ];
 
-      {/* 选岗模式面板 */}
-      {selectionMode && (
+  const filters = (
+    <>
+      {!selectionMode && (
+        <>
+          <Select
+            placeholder="选择年份" value={year} allowClear style={{ width: 110 }}
+            onChange={(v) => { setYear(v); setCity(undefined); setEducation(undefined); setExamCategory(undefined); setParams(p => ({ ...p, page: 1 })); }}
+            options={(filterOptions?.years || []).map((y: number) => ({ value: y, label: `${y}年` }))}
+          />
+          <Select
+            placeholder="考试类型" value={examType} allowClear style={{ width: 140 }}
+            onChange={(v) => { setExamType(v); setCity(undefined); setEducation(undefined); setExamCategory(undefined); setParams(p => ({ ...p, page: 1 })); }}
+            options={(filterOptions?.exam_types || []).map((t: string) => ({ value: t, label: t === '省考' ? '江苏省考' : t }))}
+          />
+          <Input
+            placeholder="搜索岗位/单位/专业" prefix={<SearchOutlined />} style={{ width: 220 }} allowClear
+            onChange={(e) => { setSearch(e.target.value); setParams(p => ({ ...p, page: 1 })); }}
+          />
+        </>
+      )}
+      <Select
+        placeholder="选择城市" value={city} allowClear style={{ width: 160 }} showSearch
+        onChange={(v) => { setCity(v); setLocation(undefined); setParams(p => ({ ...p, page: 1 })); }}
+        options={(filterOptions?.cities || []).map((c: string) => ({ value: c, label: c }))}
+      />
+      {city && filterOptions?.city_locations?.[city]?.length > 0 && (
+        <Select
+          placeholder="选择区县"
+          value={location} allowClear style={{ width: 140 }} showSearch
+          onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
+          options={filterOptions.city_locations[city].map((l: string) => ({ value: l, label: l }))}
+        />
+      )}
+      {!selectionMode && (
+        <Select
+          placeholder="学历要求" value={education} allowClear style={{ width: 140 }}
+          onChange={(v) => { setEducation(v); setParams(p => ({ ...p, page: 1 })); }}
+          options={[
+            { value: '大专及以上', label: '大专及以上' },
+            { value: '本科及以上', label: '本科及以上' },
+            { value: '研究生及以上', label: '研究生及以上' },
+          ]}
+        />
+      )}
+      <Select
+        placeholder="考试类别" value={examCategory} allowClear style={{ width: 160 }}
+        onChange={(v) => { setExamCategory(v); setParams(p => ({ ...p, page: 1 })); }}
+        options={(filterOptions?.exam_categories || []).map((c: string) => ({ value: c, label: c }))}
+      />
+      {!selectionMode && (
+        <Select
+          placeholder="难度等级" allowClear style={{ width: 110 }}
+          onChange={(v) => { setDifficulty(v); setParams(p => ({ ...p, page: 1 })); }}
+          options={[
+            { value: 'easy', label: '容易' },
+            { value: 'medium', label: '中等' },
+            { value: 'hard', label: '困难' },
+          ]}
+        />
+      )}
+      <Button icon={<SettingOutlined />} onClick={() => setColumnSettingOpen(true)}>列设置</Button>
+      <Button type="primary" icon={<UploadOutlined />} onClick={() => navigate('/positions/import')} style={{ marginLeft: 'auto' }}>导入岗位</Button>
+    </>
+  );
+
+  const detailContent = selectedPosition ? (
+    <Space direction="vertical" style={{ width: '100%' }} size="middle">
+      <Card size="small" title="基本信息">
+        <p><b>单位：</b>{selectedPosition.department || '-'}</p>
+        <p><b>岗位代码：</b>{selectedPosition.position_code || '-'}</p>
+        <p><b>地区：</b>{selectedPosition.city || '-'}</p>
+        <p><b>考试类别：</b>{selectedPosition.exam_category || '-'}</p>
+        <p><b>招录人数：</b>{selectedPosition.recruitment_count}</p>
+      </Card>
+      <Card size="small" title="报考条件">
+        <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
+        <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
+        <p><b>其他要求：</b>{selectedPosition.other_requirements || '无'}</p>
+        <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
+      </Card>
+      <Card size="small" title="竞争数据">
+        <Row gutter={16}>
+          <Col span={8}>
+            <Statistic title="报名人数" value={selectedPosition.apply_count ?? '-'} />
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title="竞争比"
+              value={selectedPosition.competition_ratio ? `${selectedPosition.competition_ratio.toFixed(0)}:1` : '-'}
+            />
+          </Col>
+          <Col span={8}>
+            <Statistic
+              title="难度"
+              value={difficultyLabel[selectedPosition.difficulty_level || ''] || '-'}
+            />
+          </Col>
+        </Row>
+      </Card>
+      {analysisData?.success && (
+        <Card size="small" title="智能分析">
+          <Row gutter={16} style={{ marginBottom: 16 }}>
+            <Col span={12}>
+              <Statistic
+                title="竞争度"
+                value={analysisData.data.competition.score}
+                suffix={<Tag color={analysisData.data.competition.level === 'high' ? 'red' : analysisData.data.competition.level === 'medium' ? 'orange' : 'green'}>{analysisData.data.competition.level_text}</Tag>}
+              />
+            </Col>
+            <Col span={12}>
+              <Statistic
+                title="性价比"
+                value={analysisData.data.value.score}
+                suffix={<Tag color={analysisData.data.value.level === 'high' ? 'green' : analysisData.data.value.level === 'medium' ? 'orange' : 'red'}>{analysisData.data.value.level_text}</Tag>}
+              />
+            </Col>
+          </Row>
+          <p style={{ color: '#666', fontSize: '14px' }}>{analysisData.data.recommendation}</p>
+        </Card>
+      )}
+    </Space>
+  ) : null;
+
+  return (
+    <PositionPageFrame
+      selectionMode={selectionMode}
+      onSelectionModeChange={(checked) => {
+        setSelectionMode(checked);
+        if (!checked) {
+          clearSelectionState();
+        }
+      }}
+      selectionPanel={selectionMode ? (
         <SelectionModePanel
           year={matchYear}
           examType={matchExamType}
@@ -262,280 +383,69 @@ export default function PositionList() {
           onMatch={handleMatch}
           onClear={() => {
             setSelectionMode(false);
-            setMatchResult(null);
-            setMatchSummary(undefined);
-            setMatchConditions(null);
+            clearSelectionState();
           }}
           matchSummary={matchSummary}
           loading={matchLoading}
           yearOptions={filterOptions?.years || []}
           examTypeOptions={filterOptions?.exam_types || []}
         />
-      )}
-
-      {/* 统计卡片（浏览模式） */}
-      {!selectionMode && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={6}>
-            <Card size="small">
-              <Statistic title="岗位总数" value={stats?.total_positions || 0} prefix={<TrophyOutlined />} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card size="small">
-              <Statistic title="招录总人数" value={stats?.total_recruitment || 0} prefix={<TeamOutlined />} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card size="small">
-              <Statistic title="覆盖地区" value={stats?.by_city?.length || 0} prefix={<EnvironmentOutlined />} />
-            </Card>
-          </Col>
-          <Col span={6}>
-            <Card size="small">
-              <Statistic title="筛选结果" value={currentData?.total || 0} suffix="条" />
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* 筛选区 */}
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {!selectionMode && (
-          <>
-            <Select
-              placeholder="选择年份" value={year} allowClear style={{ width: 110 }}
-              onChange={(v) => { setYear(v); setCity(undefined); setEducation(undefined); setExamCategory(undefined); setParams(p => ({ ...p, page: 1 })); }}
-              options={(filterOptions?.years || []).map((y: number) => ({ value: y, label: `${y}年` }))}
-            />
-            <Select
-              placeholder="考试类型" value={examType} allowClear style={{ width: 140 }}
-              onChange={(v) => { setExamType(v); setCity(undefined); setEducation(undefined); setExamCategory(undefined); setParams(p => ({ ...p, page: 1 })); }}
-              options={(filterOptions?.exam_types || []).map((t: string) => ({ value: t, label: t === '省考' ? '江苏省考' : t }))}
-            />
-            <Input
-              placeholder="搜索岗位/单位/专业" prefix={<SearchOutlined />} style={{ width: 220 }} allowClear
-              onChange={(e) => { setSearch(e.target.value); setParams(p => ({ ...p, page: 1 })); }}
-            />
-          </>
-        )}
-        <Select
-          placeholder="选择城市" value={city} allowClear style={{ width: 160 }} showSearch
-          onChange={(v) => { setCity(v); setLocation(undefined); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.cities || []).map((c: string) => ({ value: c, label: c }))}
-        />
-        {city && filterOptions?.city_locations?.[city]?.length > 0 && (
-          <Select
-            placeholder="选择区县"
-            value={location} allowClear style={{ width: 140 }} showSearch
-            onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
-            options={filterOptions.city_locations[city].map((l: string) => ({ value: l, label: l }))}
-          />
-        )}
-        {!selectionMode && (
-          <>
-            <Select
-              placeholder="学历要求" value={education} allowClear style={{ width: 140 }}
-              onChange={(v) => { setEducation(v); setParams(p => ({ ...p, page: 1 })); }}
-              options={[
-                { value: '大专及以上', label: '大专及以上' },
-                { value: '本科及以上', label: '本科及以上' },
-                { value: '研究生及以上', label: '研究生及以上' },
-              ]}
-            />
-          </>
-        )}
-        <Select
-          placeholder="考试类别" value={examCategory} allowClear style={{ width: 160 }}
-          onChange={(v) => { setExamCategory(v); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.exam_categories || []).map((c: string) => ({ value: c, label: c }))}
-        />
-        {!selectionMode && (
-          <Select
-            placeholder="难度等级" allowClear style={{ width: 110 }}
-            onChange={(v) => { setDifficulty(v); setParams(p => ({ ...p, page: 1 })); }}
-            options={[
-              { value: 'easy', label: '容易' },
-              { value: 'medium', label: '中等' },
-              { value: 'hard', label: '困难' },
-            ]}
-          />
-        )}
-        <Button icon={<SettingOutlined />} onClick={() => setColumnSettingOpen(true)}>列设置</Button>
-        <Button type="primary" icon={<UploadOutlined />} onClick={() => navigate('/positions/import')} style={{ marginLeft: 'auto' }}>导入岗位</Button>
-      </div>
-
-      {/* 岗位表格 */}
-      <Table<Position>
-        columns={columns}
-        dataSource={currentData?.items || []}
-        rowKey="id"
-        loading={isLoading}
-        rowSelection={selectionMode ? {
-          selectedRowKeys,
-          onChange: (keys) => {
-            if (keys.length > 5) {
-              message.warning('最多选择5个岗位进行对比');
-              return;
-            }
-            setSelectedRowKeys(keys as number[]);
-          },
-        } : undefined}
-        onChange={(_pagination, _filters, sorter) => {
-          if (!Array.isArray(sorter) && sorter.field) {
-            const field = String(sorter.field);
-            if (sorter.order) {
-              setSortBy(field);
-              setSortOrder(sorter.order === 'ascend' ? 'asc' : 'desc');
-            } else {
-              setSortBy(undefined);
-              setSortOrder(undefined);
-            }
+      ) : null}
+      stats={statsCards}
+      filters={filters}
+      columns={columns}
+      dataSource={currentData?.items || []}
+      loading={isLoading}
+      rowSelection={selectionMode ? {
+        selectedRowKeys,
+        onChange: (keys) => {
+          if (keys.length > 5) {
+            message.warning('最多选择5个岗位进行对比');
+            return;
           }
-        }}
-        pagination={{
-          current: params.page,
-          pageSize: params.page_size,
-          total: currentData?.total || 0,
-          showTotal: (total) => `共 ${total} 个岗位`,
-          showSizeChanger: true,
-          pageSizeOptions: ['20', '50', '100'],
-          onChange: (page, pageSize) => setParams(p => ({ ...p, page, page_size: pageSize })),
-        }}
-        scroll={{ x: 1000 }}
-        size="middle"
-      />
-
-      {/* 岗位详情抽屉 */}
-      <Drawer
-        title={selectedPosition?.title || selectedPosition?.department || '岗位详情'}
-        open={detailOpen}
-        onClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
-        size={480}
-      >
-        {selectedPosition && (
-          <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <Card size="small" title="基本信息">
-              <p><b>单位：</b>{selectedPosition.department || '-'}</p>
-              <p><b>岗位代码：</b>{selectedPosition.position_code || '-'}</p>
-              <p><b>地区：</b>{selectedPosition.city || '-'}</p>
-              <p><b>考试类别：</b>{selectedPosition.exam_category || '-'}</p>
-              <p><b>招录人数：</b>{selectedPosition.recruitment_count}</p>
-            </Card>
-            <Card size="small" title="报考条件">
-              <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
-              <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
-              <p><b>其他要求：</b>{selectedPosition.other_requirements || '无'}</p>
-              <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
-            </Card>
-            <Card size="small" title="竞争数据">
-              <Row gutter={16}>
-                <Col span={8}>
-                  <Statistic title="报名人数" value={selectedPosition.apply_count ?? '-'} />
-                </Col>
-                <Col span={8}>
-                  <Statistic
-                    title="竞争比"
-                    value={selectedPosition.competition_ratio ? `${selectedPosition.competition_ratio.toFixed(0)}:1` : '-'}
-                  />
-                </Col>
-                <Col span={8}>
-                  <Statistic
-                    title="难度"
-                    value={difficultyLabel[selectedPosition.difficulty_level || ''] || '-'}
-                  />
-                </Col>
-              </Row>
-            </Card>
-            {analysisData?.success && (
-              <Card size="small" title="智能分析">
-                <Row gutter={16} style={{ marginBottom: 16 }}>
-                  <Col span={12}>
-                    <Statistic
-                      title="竞争度"
-                      value={analysisData.data.competition.score}
-                      suffix={<Tag color={analysisData.data.competition.level === 'high' ? 'red' : analysisData.data.competition.level === 'medium' ? 'orange' : 'green'}>{analysisData.data.competition.level_text}</Tag>}
-                    />
-                  </Col>
-                  <Col span={12}>
-                    <Statistic
-                      title="性价比"
-                      value={analysisData.data.value.score}
-                      suffix={<Tag color={analysisData.data.value.level === 'high' ? 'green' : analysisData.data.value.level === 'medium' ? 'orange' : 'red'}>{analysisData.data.value.level_text}</Tag>}
-                    />
-                  </Col>
-                </Row>
-                <p style={{ color: '#666', fontSize: '14px' }}>{analysisData.data.recommendation}</p>
-              </Card>
-            )}
-          </Space>
-        )}
-      </Drawer>
-
-      {/* 选岗对比浮动栏 */}
-      {selectionMode && selectedRowKeys.length > 0 && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          background: '#fff', borderTop: '2px solid #1890ff',
-          padding: '12px 24px', zIndex: 100,
-          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-          boxShadow: '0 -2px 8px rgba(0,0,0,0.1)',
-        }}>
-          <Space>
-            <Tag color="blue">已选 {selectedRowKeys.length} 个岗位</Tag>
-            <Button size="small" onClick={() => setSelectedRowKeys([])}>清空选择</Button>
-          </Space>
-          <Space>
-            <Button
-              type="primary"
-              icon={<SwapOutlined />}
-              disabled={selectedRowKeys.length < 2}
-              onClick={() => setCompareOpen(true)}
-            >
-              对比岗位
-            </Button>
-            <Button
-              icon={<FilePdfOutlined />}
-              loading={reportLoading}
-              onClick={handleGenerateReport}
-            >
-              生成报告
-            </Button>
-          </Space>
-        </div>
-      )}
-
-      {/* 对比 Drawer */}
-      <PositionCompare
-        open={compareOpen}
-        onClose={() => setCompareOpen(false)}
-        positionIds={selectedRowKeys}
-      />
-
-      {/* 列设置Modal */}
-      <Modal
-        title="列设置"
-        open={columnSettingOpen}
-        onOk={saveColumnConfig}
-        onCancel={() => setColumnSettingOpen(false)}
-        width={500}
-      >
-        <div style={{ maxHeight: 400, overflowY: 'auto' }}>
-          <Checkbox.Group
-            value={visibleColumns}
-            onChange={(values) => setVisibleColumns(values as string[])}
-            style={{ width: '100%' }}
-          >
-            <Row gutter={[16, 16]}>
-              {allColumns.map(col => (
-                <Col span={12} key={col.key}>
-                  <Checkbox value={col.key}>{col.label}</Checkbox>
-                </Col>
-              ))}
-            </Row>
-          </Checkbox.Group>
-        </div>
-      </Modal>
-    </div>
+          setSelectedRowKeys(keys as number[]);
+        },
+      } : undefined}
+      onTableChange={(_pagination, _filters, sorter) => {
+        if (!Array.isArray(sorter) && sorter.field) {
+          const field = String(sorter.field);
+          if (sorter.order) {
+            setSortBy(field);
+            setSortOrder(sorter.order === 'ascend' ? 'asc' : 'desc');
+          } else {
+            setSortBy(undefined);
+            setSortOrder(undefined);
+          }
+        }
+      }}
+      pagination={{
+        current: params.page,
+        pageSize: params.page_size,
+        total: currentData?.total || 0,
+        showTotal: (total) => `共 ${total} 个岗位`,
+        showSizeChanger: true,
+        pageSizeOptions: ['20', '50', '100'],
+        onChange: (page, pageSize) => setParams(p => ({ ...p, page, page_size: pageSize })),
+      }}
+      tableScroll={{ x: 1000 }}
+      detailTitle={selectedPosition?.title || selectedPosition?.department || '岗位详情'}
+      detailOpen={detailOpen}
+      onDetailClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
+      detailDrawerSize={480}
+      detailContent={detailContent}
+      selectedPositionIds={selectedRowKeys}
+      compareOpen={compareOpen}
+      onCloseCompare={() => setCompareOpen(false)}
+      onOpenCompare={() => setCompareOpen(true)}
+      onClearSelected={() => setSelectedRowKeys([])}
+      onGenerateReport={handleGenerateReport}
+      reportLoading={reportLoading}
+      columnSettingOpen={columnSettingOpen}
+      onSaveColumnSetting={saveColumnConfig}
+      onCloseColumnSetting={() => setColumnSettingOpen(false)}
+      allColumns={allColumns}
+      visibleColumns={visibleColumns}
+      onVisibleColumnsChange={setVisibleColumns}
+    />
   );
 }
