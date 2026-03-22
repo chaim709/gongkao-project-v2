@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type CSSProperties } from 'react';
 import { Input, Select, Tag, Space, Button, message } from 'antd';
 import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
@@ -49,6 +49,30 @@ const EXAM_CATEGORY_COLORS: Record<string, string> = {
 
 const FILTER_LABEL_OVERRIDES: Record<string, string> = {
   待确认: '待确认（原表未规范）',
+};
+
+const FILTER_GROUP_STYLE: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 8,
+  padding: '10px 12px',
+  border: '1px solid #f0f0f0',
+  borderRadius: 10,
+  background: '#fafafa',
+};
+
+const FILTER_GROUP_LABEL_STYLE: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 28,
+  padding: '0 10px',
+  borderRadius: 999,
+  background: '#e6f4ff',
+  color: '#0958d9',
+  fontSize: 12,
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
 };
 
 function formatEducationText(value?: string) {
@@ -226,6 +250,17 @@ export default function ShiyePositionList() {
     setRecommendationTier(undefined);
     clearSelectedRowKeys();
     closeCompare();
+  };
+
+  const clearSelectionNarrowingFilters = () => {
+    setCity(undefined);
+    setLocation(undefined);
+    setPostNatures([]);
+    setFundingSource(undefined);
+    setRecruitmentTarget(undefined);
+    setExcludedRiskTags([]);
+    setRecommendationTier(undefined);
+    resetToFirstPage();
   };
 
   const handleMatch = async (conditions: ShiyeSelectionConditions) => {
@@ -432,6 +467,33 @@ export default function ShiyePositionList() {
     { key: 'filtered_total', title: '筛选结果', value: currentData?.total || 0, suffix: '条' },
   ];
 
+  const activeSelectionFilterTags: string[] = [];
+  if (city) activeSelectionFilterTags.push(`地市：${city}`);
+  if (location) activeSelectionFilterTags.push(`区县：${location}`);
+  if (postNatures.length) {
+    activeSelectionFilterTags.push(
+      `岗位性质：${postNatures.map(formatFilterLabel).join(' / ')}`,
+    );
+  }
+  if (recruitmentTarget) {
+    activeSelectionFilterTags.push(
+      `招聘对象：${formatFilterLabel(recruitmentTarget)}`,
+    );
+  }
+  if (fundingSource) {
+    activeSelectionFilterTags.push(
+      `经费来源：${formatFilterLabel(fundingSource)}`,
+    );
+  }
+  if (excludedRiskTags.length) {
+    activeSelectionFilterTags.push(
+      `已避开：${excludedRiskTags.map(formatFilterLabel).join(' / ')}`,
+    );
+  }
+  if (recommendationTier) {
+    activeSelectionFilterTags.push(`结果层级：${recommendationTier}`);
+  }
+
   const filters = (
     <>
       {!selectionMode && (
@@ -447,87 +509,18 @@ export default function ShiyePositionList() {
           />
         </>
       )}
-      <Select
-        placeholder="选择地市" value={city} allowClear style={{ width: 130 }} showSearch
-        onChange={(v) => { setCity(v); setLocation(undefined); resetToFirstPage(); }}
-        options={((selectionMode ? shiyeFilterOptions?.cities : filterOptions?.cities) || []).map((c: string) => ({ value: c, label: c }))}
-      />
-      {city && !selectionMode && filterOptions?.city_locations?.[city]?.length > 0 && (
+      {!selectionMode && (
+        <Select
+          placeholder="选择地市" value={city} allowClear style={{ width: 130 }} showSearch
+          onChange={(v) => { setCity(v); setLocation(undefined); resetToFirstPage(); }}
+          options={((selectionMode ? shiyeFilterOptions?.cities : filterOptions?.cities) || []).map((c: string) => ({ value: c, label: c }))}
+        />
+      )}
+      {!selectionMode && city && filterOptions?.city_locations?.[city]?.length > 0 && (
         <Select
           placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
           onChange={(v) => { setLocation(v); resetToFirstPage(); }}
           options={filterOptions.city_locations[city].map((l: string) => ({ value: l, label: l }))}
-        />
-      )}
-      {city && selectionMode && (
-        <Select
-          placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
-          onChange={(v) => { setLocation(v); resetToFirstPage(); }}
-          options={(
-            shiyeFilterOptions?.city_locations?.[city] ||
-            shiyeFilterOptions?.locations ||
-            []
-          ).map((l: string) => ({ value: l, label: l }))}
-        />
-      )}
-      {selectionMode && (
-        <Select
-          mode="multiple"
-          placeholder="岗位性质偏好"
-          value={postNatures}
-          allowClear
-          style={{ width: 200 }}
-          onChange={(v) => { setPostNatures(v); resetToFirstPage(); }}
-          options={buildSelectionFilterOptions(
-            shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗'],
-          )}
-        />
-      )}
-      {selectionMode && (
-        <Select
-          placeholder="招聘对象限制"
-          value={recruitmentTarget}
-          allowClear
-          style={{ width: 160 }}
-          onChange={(v) => { setRecruitmentTarget(v === '不限' ? undefined : v); resetToFirstPage(); }}
-          options={buildSelectionFilterOptions(
-            shiyeFilterOptions?.recruitment_targets,
-            { excludeUnlimited: true },
-          )}
-        />
-      )}
-      {selectionMode && (
-        <Select
-          placeholder="经费来源限制"
-          value={fundingSource}
-          allowClear
-          style={{ width: 170 }}
-          onChange={(v) => { setFundingSource(v === '不限' ? undefined : v); resetToFirstPage(); }}
-          options={buildSelectionFilterOptions(
-            shiyeFilterOptions?.funding_sources,
-            { excludeUnlimited: true },
-          )}
-        />
-      )}
-      {selectionMode && (
-        <Select
-          mode="multiple"
-          placeholder="风险避雷"
-          value={excludedRiskTags}
-          allowClear
-          style={{ width: 220 }}
-          onChange={(v) => { setExcludedRiskTags(v); resetToFirstPage(); }}
-          options={buildSelectionFilterOptions(shiyeFilterOptions?.risk_tags)}
-        />
-      )}
-      {selectionMode && (
-        <Select
-          placeholder="结果层级筛选"
-          value={recommendationTier}
-          allowClear
-          style={{ width: 150 }}
-          onChange={(v) => { setRecommendationTier(v); resetToFirstPage(); }}
-          options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
         />
       )}
       {!selectionMode && (
@@ -558,7 +551,130 @@ export default function ShiyePositionList() {
           options={(filterOptions?.educations || []).map((e: string) => ({ value: e, label: e }))}
         />
       )}
-      <Button icon={<SettingOutlined />} onClick={openColumnSetting}>列设置</Button>
+      {!selectionMode && <Button icon={<SettingOutlined />} onClick={openColumnSetting}>列设置</Button>}
+      {selectionMode && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            <div style={FILTER_GROUP_STYLE}>
+              <span style={FILTER_GROUP_LABEL_STYLE}>地点范围</span>
+              <Select
+                placeholder="选择地市"
+                value={city}
+                allowClear
+                style={{ width: 130 }}
+                showSearch
+                onChange={(v) => { setCity(v); setLocation(undefined); resetToFirstPage(); }}
+                options={(shiyeFilterOptions?.cities || []).map((c: string) => ({ value: c, label: c }))}
+              />
+              <Select
+                placeholder="选择区县"
+                value={location}
+                allowClear
+                style={{ width: 140 }}
+                showSearch
+                disabled={!city}
+                onChange={(v) => { setLocation(v); resetToFirstPage(); }}
+                options={(
+                  (city && shiyeFilterOptions?.city_locations?.[city]) ||
+                  shiyeFilterOptions?.locations ||
+                  []
+                ).map((l: string) => ({ value: l, label: l }))}
+              />
+            </div>
+
+            <div style={FILTER_GROUP_STYLE}>
+              <span style={FILTER_GROUP_LABEL_STYLE}>岗位收缩</span>
+              <Select
+                mode="multiple"
+                placeholder="岗位性质偏好"
+                value={postNatures}
+                allowClear
+                style={{ width: 200 }}
+                onChange={(v) => { setPostNatures(v); resetToFirstPage(); }}
+                options={buildSelectionFilterOptions(
+                  shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗'],
+                )}
+              />
+              <Select
+                placeholder="招聘对象限制"
+                value={recruitmentTarget}
+                allowClear
+                style={{ width: 160 }}
+                onChange={(v) => { setRecruitmentTarget(v === '不限' ? undefined : v); resetToFirstPage(); }}
+                options={buildSelectionFilterOptions(
+                  shiyeFilterOptions?.recruitment_targets,
+                  { excludeUnlimited: true },
+                )}
+              />
+              <Select
+                placeholder="经费来源限制"
+                value={fundingSource}
+                allowClear
+                style={{ width: 170 }}
+                onChange={(v) => { setFundingSource(v === '不限' ? undefined : v); resetToFirstPage(); }}
+                options={buildSelectionFilterOptions(
+                  shiyeFilterOptions?.funding_sources,
+                  { excludeUnlimited: true },
+                )}
+              />
+            </div>
+
+            <div style={FILTER_GROUP_STYLE}>
+              <span style={FILTER_GROUP_LABEL_STYLE}>风险避雷</span>
+              <Select
+                mode="multiple"
+                placeholder="避开高竞争 / 高分线 / 高强度"
+                value={excludedRiskTags}
+                allowClear
+                style={{ width: 250 }}
+                onChange={(v) => { setExcludedRiskTags(v); resetToFirstPage(); }}
+                options={buildSelectionFilterOptions(shiyeFilterOptions?.risk_tags)}
+              />
+            </div>
+
+            <div style={FILTER_GROUP_STYLE}>
+              <span style={FILTER_GROUP_LABEL_STYLE}>结果分层</span>
+              <Select
+                placeholder="结果层级筛选"
+                value={recommendationTier}
+                allowClear
+                style={{ width: 150 }}
+                onChange={(v) => { setRecommendationTier(v); resetToFirstPage(); }}
+                options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
+              />
+              <Button onClick={clearSelectionNarrowingFilters}>
+                清空筛选
+              </Button>
+              <Button icon={<SettingOutlined />} onClick={openColumnSetting}>
+                列设置
+              </Button>
+            </div>
+          </div>
+
+          <div
+            style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 8,
+              alignItems: 'center',
+              minHeight: 32,
+            }}
+          >
+            <span style={{ color: '#595959', fontSize: 12, fontWeight: 600 }}>
+              当前收缩条件
+            </span>
+            {activeSelectionFilterTags.length ? (
+              activeSelectionFilterTags.map((item) => (
+                <Tag key={item} color="blue">
+                  {item}
+                </Tag>
+              ))
+            ) : (
+              <Tag color="default">未额外收缩，当前展示全部可报岗位</Tag>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 
