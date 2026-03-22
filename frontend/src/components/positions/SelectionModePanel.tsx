@@ -195,33 +195,67 @@ export default function SelectionModePanel({
 
       {/* 匹配结果摘要 */}
       {matchSummary && (
-        <Alert
-          type="info"
-          showIcon={false}
-          message={
-            <Space split={<Divider type="vertical" />} wrap>
-              <span>
-                符合条件: <b style={{ color: '#52c41a', fontSize: 16 }}>{matchSummary.matched}</b> / {matchSummary.total_positions} 个岗位
-              </span>
-              {matchSummary.education_excluded > 0 && (
-                <Tag color="red">学历不符 {matchSummary.education_excluded}</Tag>
-              )}
-              {matchSummary.major_excluded > 0 && (
-                <Tag color="orange">专业不符 {matchSummary.major_excluded}</Tag>
-              )}
-              {matchSummary.political_excluded > 0 && (
-                <Tag color="blue">面貌不符 {matchSummary.political_excluded}</Tag>
-              )}
-              {matchSummary.work_experience_excluded > 0 && (
-                <Tag color="purple">经历不符 {matchSummary.work_experience_excluded}</Tag>
-              )}
-              {matchSummary.gender_excluded > 0 && (
-                <Tag color="default">性别不符 {matchSummary.gender_excluded}</Tag>
-              )}
-            </Space>
-          }
-          style={{ background: '#fff' }}
-        />
+        <div>
+          <Alert
+            type="info"
+            showIcon={false}
+            message={
+              typeof matchSummary.manual_review_needed === 'number' || typeof matchSummary.hard_pass === 'number' ? (
+                <Space split={<Divider type="vertical" />} wrap>
+                  <span>
+                    硬匹配: <b style={{ color: '#52c41a', fontSize: 16 }}>{matchSummary.hard_pass || 0}</b> / {matchSummary.total_positions} 个岗位
+                  </span>
+                  <Tag color="gold">需人工确认 {matchSummary.manual_review_needed || 0}</Tag>
+                  <Tag color="default">已排除 {matchSummary.hard_fail || 0}</Tag>
+                  {typeof matchSummary.sprint_count === 'number' && (
+                    <Tag color="red">冲刺 {matchSummary.sprint_count}</Tag>
+                  )}
+                  {typeof matchSummary.stable_count === 'number' && (
+                    <Tag color="green">稳妥 {matchSummary.stable_count}</Tag>
+                  )}
+                  {typeof matchSummary.safe_count === 'number' && (
+                    <Tag color="blue">保底 {matchSummary.safe_count}</Tag>
+                  )}
+                </Space>
+              ) : (
+                <Space split={<Divider type="vertical" />} wrap>
+                  <span>
+                    符合条件: <b style={{ color: '#52c41a', fontSize: 16 }}>{matchSummary.matched}</b> / {matchSummary.total_positions} 个岗位
+                  </span>
+                  {matchSummary.education_excluded && matchSummary.education_excluded > 0 && (
+                    <Tag color="red">学历不符 {matchSummary.education_excluded}</Tag>
+                  )}
+                  {matchSummary.major_excluded && matchSummary.major_excluded > 0 && (
+                    <Tag color="orange">专业不符 {matchSummary.major_excluded}</Tag>
+                  )}
+                  {matchSummary.political_excluded && matchSummary.political_excluded > 0 && (
+                    <Tag color="blue">面貌不符 {matchSummary.political_excluded}</Tag>
+                  )}
+                  {matchSummary.work_experience_excluded && matchSummary.work_experience_excluded > 0 && (
+                    <Tag color="purple">经历不符 {matchSummary.work_experience_excluded}</Tag>
+                  )}
+                  {matchSummary.gender_excluded && matchSummary.gender_excluded > 0 && (
+                    <Tag color="default">性别不符 {matchSummary.gender_excluded}</Tag>
+                  )}
+                </Space>
+              )
+            }
+            style={{ background: '#fff' }}
+          />
+
+          {matchSummary.sort_basis?.length ? (
+            <div style={{ marginTop: 10, padding: '10px 12px', background: '#fafafa', borderRadius: 8 }}>
+              <div style={{ marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#595959' }}>
+                当前排序依据
+              </div>
+              <Space size={[0, 8]} wrap>
+                {matchSummary.sort_basis.map((basis) => (
+                  <Tag key={basis} color="blue">{basis}</Tag>
+                ))}
+              </Space>
+            </div>
+          ) : null}
+        </div>
       )}
     </Card>
   );

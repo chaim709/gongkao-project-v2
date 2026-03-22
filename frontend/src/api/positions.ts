@@ -1,5 +1,5 @@
 import client from './client';
-import type { Position } from '../types/position';
+import type { MatchResult, ShiyeSelectionFilterOptions } from '../types/position';
 
 export const positionApi = {
   list: (params: {
@@ -12,12 +12,6 @@ export const positionApi = {
     sort_by?: string; sort_order?: string;
   }) =>
     client.get('/positions', { params }),
-
-  get: (id: number) =>
-    client.get(`/positions/${id}`),
-
-  create: (data: Partial<Position>) =>
-    client.post('/positions', data),
 
   filterOptions: (params?: { year?: number; exam_type?: string }) =>
     client.get('/positions/filter-options', { params }),
@@ -68,12 +62,29 @@ export const positionApi = {
     sort_by?: string; sort_order?: string;
   }) => client.post('/positions/match', params),
 
-  matchForStudent: (studentId: number, params?: {
-    year?: number; exam_type?: string;
-    page?: number; page_size?: number;
-    city?: string; exam_category?: string;
-    sort_by?: string; sort_order?: string;
-  }) => client.get(`/positions/match-for-student/${studentId}`, { params }),
+  shiyeSelectionSearch: (params: {
+    year: number;
+    education: string;
+    major: string;
+    political_status?: string;
+    work_years?: number;
+    gender?: string;
+    city?: string;
+    location?: string;
+    exam_category?: string;
+    funding_source?: string;
+    recruitment_target?: string;
+    post_natures?: string[];
+    recommendation_tiers?: string[];
+    include_manual_review?: boolean;
+    page?: number;
+    page_size?: number;
+    sort_by?: string;
+    sort_order?: string;
+  }) => client.post<MatchResult>('/positions/shiye-selection/search', params),
+
+  shiyeFilterOptions: (params: { year: number }) =>
+    client.get<ShiyeSelectionFilterOptions>('/positions/shiye-selection/filter-options', { params }),
 
   // 岗位对比
   compare: (positionIds: number[]) =>
@@ -85,6 +96,21 @@ export const positionApi = {
     position_ids: number[];
     year: number;
     exam_type: string;
+    education?: string;
+    major?: string;
+    political_status?: string;
+    work_years?: number;
+    gender?: string;
+    city?: string;
+    location?: string;
+    exam_category?: string;
+    funding_source?: string;
+    recruitment_target?: string;
+    post_natures?: string[];
+    recommendation_tiers?: string[];
+    include_manual_review?: boolean;
+    sort_by?: string;
+    sort_order?: string;
   }) => {
     const res = await client.post('/positions/report/pdf', data, {
       responseType: 'blob',

@@ -44,6 +44,17 @@ export interface Position {
   remark?: string;
   exam_weight_ratio?: string;
   description?: string;
+  eligibility_status?: 'hard_pass' | 'manual_review_needed' | 'hard_fail';
+  match_source?: string;
+  match_reasons?: string[];
+  sort_reasons?: string[];
+  recommendation_tier?: '冲刺' | '稳妥' | '保底';
+  recommendation_reasons?: string[];
+  post_nature?: string;
+  risk_tags?: string[];
+  risk_reasons?: string[];
+  risk_score?: number;
+  manual_review_flags?: string[];
 }
 
 export interface PositionFilterOptions {
@@ -65,12 +76,19 @@ export interface PositionFilterOptions {
 
 export interface MatchSummary {
   total_positions: number;
-  matched: number;
-  education_excluded: number;
-  major_excluded: number;
-  political_excluded: number;
-  work_experience_excluded: number;
-  gender_excluded: number;
+  matched?: number;
+  education_excluded?: number;
+  major_excluded?: number;
+  political_excluded?: number;
+  work_experience_excluded?: number;
+  gender_excluded?: number;
+  hard_pass?: number;
+  manual_review_needed?: number;
+  hard_fail?: number;
+  sprint_count?: number;
+  stable_count?: number;
+  safe_count?: number;
+  sort_basis?: string[];
 }
 
 export interface MatchRequest {
@@ -97,5 +115,16 @@ export interface MatchResult {
   total: number;
   page: number;
   page_size: number;
-  match_summary: MatchSummary;
+  match_summary?: MatchSummary;
+  summary?: MatchSummary;
+}
+
+export interface ShiyeSelectionFilterOptions {
+  years: number[];
+  cities: string[];
+  locations: string[];
+  exam_categories: string[];
+  funding_sources: string[];
+  recruitment_targets: string[];
+  post_natures: string[];
 }

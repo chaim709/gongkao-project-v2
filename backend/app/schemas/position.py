@@ -103,12 +103,49 @@ class PositionMatchFilterRequest(BaseModel):
     sort_order: Optional[str] = None
 
 
+class ShiyeSelectionSearchRequest(BaseModel):
+    """江苏事业编选岗请求"""
+    year: int = 2025
+    education: str = ""
+    major: str = ""
+    political_status: Optional[str] = None
+    work_years: int = 0
+    gender: Optional[str] = None
+    city: Optional[str] = None
+    location: Optional[str] = None
+    exam_category: Optional[str] = None
+    funding_source: Optional[str] = None
+    recruitment_target: Optional[str] = None
+    post_natures: list[str] = []
+    recommendation_tiers: list[str] = []
+    include_manual_review: bool = True
+    page: int = 1
+    page_size: int = 20
+    sort_by: Optional[str] = None
+    sort_order: Optional[str] = None
+
+
 class PDFReportRequest(BaseModel):
     """PDF报告生成请求"""
     student_id: int = 0
     position_ids: list[int] = []
     year: int = 2025
     exam_type: str = "省考"
+    education: Optional[str] = None
+    major: Optional[str] = None
+    political_status: Optional[str] = None
+    work_years: int = 0
+    gender: Optional[str] = None
+    city: Optional[str] = None
+    location: Optional[str] = None
+    exam_category: Optional[str] = None
+    funding_source: Optional[str] = None
+    recruitment_target: Optional[str] = None
+    post_natures: list[str] = []
+    recommendation_tiers: list[str] = []
+    include_manual_review: bool = True
+    sort_by: Optional[str] = None
+    sort_order: Optional[str] = None
 
 
 class PositionCompareRequest(BaseModel):

@@ -9,7 +9,8 @@ from app.models.position import Position
 from app.schemas.position import (
     PositionCreate, PositionResponse, PositionListResponse,
     PositionFilterOptions, PositionMatchFilterRequest,
-    PDFReportRequest, PositionCompareRequest, PositionFavoriteCreateRequest
+    PDFReportRequest, PositionCompareRequest, PositionFavoriteCreateRequest,
+    ShiyeSelectionSearchRequest,
 )
 from typing import Optional, List
 import time
@@ -220,59 +221,79 @@ async def match_positions(
     }
 
 
-@router.get("/match-for-student/{student_id}")
-async def match_for_student(
-    student_id: int,
-    year: int = Query(2025),
-    exam_type: str = Query("省考"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    city: Optional[str] = None,
-    exam_category: Optional[str] = None,
-    sort_by: Optional[str] = None,
-    sort_order: Optional[str] = None,
+@router.post("/shiye-selection/search")
+async def search_shiye_positions(
+    data: ShiyeSelectionSearchRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """根据学员自动匹配岗位"""
-    from app.services.position_match_service import PositionMatchService
-    from app.models.student import Student
+    """江苏事业编专用选岗搜索"""
+    from app.services.selection.shiye_selection_service import ShiyeSelectionService
 
-    student = (await db.execute(
-        select(Student).where(Student.id == student_id)
-    )).scalar_one_or_none()
-    if not student:
-        raise HTTPException(status_code=404, detail="学员不存在")
-
-    result = await PositionMatchService.match_positions(
-        db=db, year=year, exam_type=exam_type,
-        education=student.education or '',
-        major=student.major or '',
-        political_status=student.political_status,
-        work_years=student.work_years or 0,
-        gender=student.gender,
-        city=city, exam_category=exam_category,
-        page=page, page_size=page_size,
-        sort_by=sort_by, sort_order=sort_order,
+    result = await ShiyeSelectionService.search(
+        db=db,
+        year=data.year,
+        education=data.education,
+        major=data.major,
+        political_status=data.political_status,
+        work_years=data.work_years,
+        gender=data.gender,
+        city=data.city,
+        location=data.location,
+        exam_category=data.exam_category,
+        funding_source=data.funding_source,
+        recruitment_target=data.recruitment_target,
+        post_natures=data.post_natures,
+        recommendation_tiers=data.recommendation_tiers,
+        include_manual_review=data.include_manual_review,
+        page=data.page,
+        page_size=data.page_size,
+        sort_by=data.sort_by,
+        sort_order=data.sort_order,
     )
 
-    items = [PositionResponse.model_validate(p) for p in result['items']]
+    items = []
+    for item in result["items"]:
+        serialized = PositionResponse.model_validate(item["position"]).model_dump()
+        serialized.update(
+            {
+                "eligibility_status": item["eligibility_status"],
+                "match_source": item["match_source"],
+                "match_reasons": item["match_reasons"],
+                "sort_reasons": item["sort_reasons"],
+                "recommendation_tier": item.get("recommendation_tier"),
+                "recommendation_reasons": item.get("recommendation_reasons", []),
+                "post_nature": item["post_nature"],
+                "risk_tags": item["risk_tags"],
+                "risk_reasons": item["risk_reasons"],
+                "risk_score": item["risk_score"],
+                "manual_review_flags": item["manual_review_flags"],
+            }
+        )
+        items.append(serialized)
+
     return {
-        'student': {
-            'id': student.id,
-            'name': student.name,
-            'education': student.education,
-            'major': student.major,
-            'political_status': student.political_status,
-            'work_years': student.work_years,
-            'gender': student.gender,
-        },
-        'items': [item.model_dump() for item in items],
-        'total': result['total'],
-        'page': result['page'],
-        'page_size': result['page_size'],
-        'match_summary': result['match_summary'],
+        "items": items,
+        "total": result["total"],
+        "page": result["page"],
+        "page_size": result["page_size"],
+        "summary": result["summary"],
     }
+
+
+@router.get("/shiye-selection/filter-options")
+async def get_shiye_selection_filter_options(
+    year: int = Query(2025),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """江苏事业编专用选岗筛选项"""
+    from app.services.selection.shiye_selection_service import ShiyeSelectionService
+
+    return await ShiyeSelectionService.get_filter_options(
+        db=db,
+        year=year,
+    )
 
 
 @router.get("", response_model=PositionListResponse)
@@ -396,6 +417,21 @@ async def generate_pdf_report(
         position_ids=data.position_ids,
         year=data.year,
         exam_type=data.exam_type,
+        education=data.education,
+        major=data.major,
+        political_status=data.political_status,
+        work_years=data.work_years,
+        gender=data.gender,
+        city=data.city,
+        location=data.location,
+        exam_category=data.exam_category,
+        funding_source=data.funding_source,
+        recruitment_target=data.recruitment_target,
+        post_natures=data.post_natures,
+        recommendation_tiers=data.recommendation_tiers,
+        include_manual_review=data.include_manual_review,
+        sort_by=data.sort_by,
+        sort_order=data.sort_order,
     )
 
     return StreamingResponse(
@@ -691,4 +727,3 @@ async def get_position(
     if not position:
         raise HTTPException(status_code=404, detail="岗位不存在")
     return PositionResponse.model_validate(position)
-

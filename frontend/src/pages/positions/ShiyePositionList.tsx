@@ -5,8 +5,17 @@ import { useQuery } from '@tanstack/react-query';
 import { positionApi } from '../../api/positions';
 import SelectionModePanel from '../../components/positions/SelectionModePanel';
 import PositionCompare from '../../components/positions/PositionCompare';
-import type { Position, MatchSummary } from '../../types/position';
+import type { Position, MatchResult, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
+
+interface SelectionConditions {
+  education: string;
+  major: string;
+  political_status?: string;
+  work_years?: number;
+  gender?: string;
+  student_id?: number;
+}
 
 export default function ShiyePositionList() {
   const [params, setParams] = useState({ page: 1, page_size: 20 });
@@ -18,6 +27,8 @@ export default function ShiyePositionList() {
   const [examCategory, setExamCategory] = useState<string>();
   const [fundingSource, setFundingSource] = useState<string>();
   const [recruitmentTarget, setRecruitmentTarget] = useState<string>();
+  const [postNatures, setPostNatures] = useState<string[]>([]);
+  const [recommendationTiers, setRecommendationTiers] = useState<string[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
   const [sortBy, setSortBy] = useState<string>();
@@ -28,10 +39,10 @@ export default function ShiyePositionList() {
   // 选岗模式状态
   const [selectionMode, setSelectionMode] = useState(false);
   const [matchYear, setMatchYear] = useState(2025);
-  const [matchResult, setMatchResult] = useState<any>(null);
+  const [matchResult, setMatchResult] = useState<MatchResult | null>(null);
   const [matchSummary, setMatchSummary] = useState<MatchSummary>();
   const [matchLoading, setMatchLoading] = useState(false);
-  const [matchConditions, setMatchConditions] = useState<any>(null);
+  const [matchConditions, setMatchConditions] = useState<SelectionConditions | null>(null);
 
   // 对比功能状态
   const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
@@ -44,6 +55,11 @@ export default function ShiyePositionList() {
     { key: 'supervising_dept', label: '主管部门', width: 160 },
     { key: 'city', label: '地市', width: 80 },
     { key: 'location', label: '区县', width: 90 },
+    { key: 'eligibility_status', label: '匹配状态', width: 110 },
+    { key: 'match_source', label: '匹配来源', width: 120 },
+    { key: 'recommendation_tier', label: '推荐层级', width: 100 },
+    { key: 'post_nature', label: '岗位性质', width: 100 },
+    { key: 'risk_tags', label: '风险标签', width: 180 },
     { key: 'exam_category', label: '笔试类别', width: 90 },
     { key: 'position_level', label: '岗位等级', width: 100 },
     { key: 'description', label: '岗位说明', width: 150 },
@@ -68,7 +84,7 @@ export default function ShiyePositionList() {
     if (saved) {
       setVisibleColumns(JSON.parse(saved));
     } else {
-      setVisibleColumns(['title', 'department', 'city', 'location', 'exam_category', 'education', 'recruitment_count', 'apply_count', 'competition_ratio', 'min_interview_score', 'max_interview_score']);
+      setVisibleColumns(['title', 'department', 'city', 'location', 'match_source', 'recommendation_tier', 'post_nature', 'risk_tags', 'exam_category', 'education', 'recruitment_count', 'apply_count', 'competition_ratio', 'min_interview_score']);
     }
   }, []);
 
@@ -80,6 +96,11 @@ export default function ShiyePositionList() {
   const { data: filterOptions } = useQuery({
     queryKey: ['shiye-filters', year],
     queryFn: () => positionApi.filterOptions({ year, exam_type: '事业单位' }),
+  });
+
+  const { data: shiyeFilterOptions } = useQuery({
+    queryKey: ['shiye-selection-filters', selectionMode ? matchYear : year],
+    queryFn: () => positionApi.shiyeFilterOptions({ year: selectionMode ? matchYear : (year || 2025) }),
   });
 
   const { data: stats } = useQuery({
@@ -98,26 +119,46 @@ export default function ShiyePositionList() {
     enabled: !selectionMode,
   });
 
-  const handleMatch = async (conditions: any) => {
+  const buildSelectionCriteria = (conditions: SelectionConditions) => ({
+    year: matchYear,
+    education: conditions.education,
+    major: conditions.major,
+    political_status: conditions.political_status,
+    work_years: conditions.work_years,
+    gender: conditions.gender,
+    city,
+    location,
+    exam_category: examCategory,
+    funding_source: fundingSource,
+    recruitment_target: recruitmentTarget,
+    post_natures: postNatures,
+    recommendation_tiers: recommendationTiers,
+    sort_by: sortBy,
+    sort_order: sortOrder,
+  });
+
+  const buildSelectionPayload = (conditions: SelectionConditions) => ({
+    ...buildSelectionCriteria(conditions),
+    page: params.page,
+    page_size: params.page_size,
+  });
+
+  const clearSelectionState = () => {
+    setMatchResult(null);
+    setMatchSummary(undefined);
+    setMatchConditions(null);
+    setRecommendationTiers([]);
+    setSelectedRowKeys([]);
+    setCompareOpen(false);
+  };
+
+  const handleMatch = async (conditions: SelectionConditions) => {
     setMatchLoading(true);
     setMatchConditions(conditions);
     try {
-      const result = await positionApi.match({
-        year: matchYear,
-        exam_type: '事业单位',
-        education: conditions.education,
-        major: conditions.major,
-        political_status: conditions.political_status,
-        work_years: conditions.work_years,
-        gender: conditions.gender,
-        city, exam_category: examCategory,
-        page: params.page,
-        page_size: params.page_size,
-        sort_by: sortBy,
-        sort_order: sortOrder,
-      });
-      setMatchResult(result);
-      setMatchSummary(result.match_summary);
+      const selectionResult = await positionApi.shiyeSelectionSearch(buildSelectionPayload(conditions));
+      setMatchResult(selectionResult);
+      setMatchSummary(selectionResult.summary);
     } catch {
       // ignore
     } finally {
@@ -127,9 +168,9 @@ export default function ShiyePositionList() {
 
   useEffect(() => {
     if (selectionMode && matchConditions) {
-      handleMatch(matchConditions);
+      void handleMatch(matchConditions);
     }
-  }, [params.page, params.page_size, sortBy, sortOrder, city, examCategory]);
+  }, [selectionMode, matchYear, params.page, params.page_size, sortBy, sortOrder, city, location, examCategory, fundingSource, recruitmentTarget, postNatures, recommendationTiers]);
 
   const handleGenerateReport = async () => {
     if (selectedRowKeys.length === 0) {
@@ -141,8 +182,9 @@ export default function ShiyePositionList() {
       await positionApi.generateReport({
         student_id: matchConditions?.student_id || 0,
         position_ids: selectedRowKeys,
-        year: matchYear,
         exam_type: '事业单位',
+        ...buildSelectionCriteria(matchConditions || { education: '', major: '' }),
+        include_manual_review: true,
       });
       message.success('报告已生成并下载');
     } catch {
@@ -168,6 +210,48 @@ export default function ShiyePositionList() {
     supervising_dept: { title: '主管部门', dataIndex: 'supervising_dept', width: 160, ellipsis: true },
     city: { title: '地市', dataIndex: 'city', width: 80 },
     location: { title: '区县', dataIndex: 'location', width: 90 },
+    eligibility_status: {
+      title: '匹配状态', dataIndex: 'eligibility_status', width: 110,
+      render: (v: string) => {
+        if (v === 'hard_pass') return <Tag color="green">硬匹配</Tag>;
+        if (v === 'manual_review_needed') return <Tag color="gold">需人工确认</Tag>;
+        return '-';
+      },
+    },
+    match_source: {
+      title: '匹配来源', dataIndex: 'match_source', width: 120,
+      render: (v: string) => {
+        const colors: Record<string, string> = {
+          '专业精确匹配': 'green',
+          '专业大类匹配': 'blue',
+          '专业不限': 'cyan',
+          '专业需人工确认': 'gold',
+        };
+        return v ? <Tag color={colors[v] || 'default'}>{v}</Tag> : '-';
+      },
+    },
+    recommendation_tier: {
+      title: '推荐层级', dataIndex: 'recommendation_tier', width: 100,
+      render: (v: string) => {
+        const colors: Record<string, string> = { '冲刺': 'red', '稳妥': 'green', '保底': 'blue' };
+        return v ? <Tag color={colors[v] || 'default'}>{v}</Tag> : '-';
+      },
+    },
+    post_nature: {
+      title: '岗位性质', dataIndex: 'post_nature', width: 100,
+      render: (v: string) => {
+        const colors: Record<string, string> = { '管理岗': 'blue', '专技岗': 'green', '工勤岗': 'orange', '待确认': 'default' };
+        return v ? <Tag color={colors[v] || 'default'}>{v}</Tag> : '-';
+      },
+    },
+    risk_tags: {
+      title: '风险标签', dataIndex: 'risk_tags', width: 180,
+      render: (tags: string[]) => tags?.length ? (
+        <Space size={[0, 4]} wrap>
+          {tags.map(tag => <Tag key={tag} color={tag === '高竞争' || tag === '高分线' ? 'red' : 'orange'}>{tag}</Tag>)}
+        </Space>
+      ) : '-',
+    },
     exam_category: {
       title: '笔试类别', dataIndex: 'exam_category', width: 90,
       render: (v: string) => {
@@ -229,7 +313,9 @@ export default function ShiyePositionList() {
             checked={selectionMode}
             onChange={(checked) => {
               setSelectionMode(checked);
-              if (!checked) { setMatchResult(null); setMatchSummary(undefined); setMatchConditions(null); }
+              if (!checked) {
+                clearSelectionState();
+              }
             }}
             checkedChildren="选岗模式"
             unCheckedChildren="浏览模式"
@@ -243,7 +329,7 @@ export default function ShiyePositionList() {
           year={matchYear} examType="事业单位"
           onYearChange={setMatchYear} onExamTypeChange={() => {}}
           onMatch={handleMatch}
-          onClear={() => { setSelectionMode(false); setMatchResult(null); setMatchSummary(undefined); setMatchConditions(null); }}
+          onClear={() => { setSelectionMode(false); clearSelectionState(); }}
           matchSummary={matchSummary} loading={matchLoading}
           yearOptions={filterOptions?.years || []} examTypeOptions={['事业单位']}
         />
@@ -284,30 +370,59 @@ export default function ShiyePositionList() {
         <Select
           placeholder="选择地市" value={city} allowClear style={{ width: 130 }} showSearch
           onChange={(v) => { setCity(v); setLocation(undefined); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.cities || []).map((c: string) => ({ value: c, label: c }))}
+          options={((selectionMode ? shiyeFilterOptions?.cities : filterOptions?.cities) || []).map((c: string) => ({ value: c, label: c }))}
         />
-        {city && filterOptions?.city_locations?.[city]?.length > 0 && (
+        {city && !selectionMode && filterOptions?.city_locations?.[city]?.length > 0 && (
           <Select
             placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
             onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
             options={filterOptions.city_locations[city].map((l: string) => ({ value: l, label: l }))}
           />
         )}
+        {city && selectionMode && (
+          <Select
+            placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
+            onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
+            options={(shiyeFilterOptions?.locations || []).map((l: string) => ({ value: l, label: l }))}
+          />
+        )}
         <Select
           placeholder="笔试类别" value={examCategory} allowClear style={{ width: 120 }}
           onChange={(v) => { setExamCategory(v); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.exam_categories || []).map((c: string) => ({ value: c, label: c }))}
+          options={((selectionMode ? shiyeFilterOptions?.exam_categories : filterOptions?.exam_categories) || []).map((c: string) => ({ value: c, label: c }))}
         />
         <Select
           placeholder="经费来源" value={fundingSource} allowClear style={{ width: 120 }}
           onChange={(v) => { setFundingSource(v); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.funding_sources || []).map((f: string) => ({ value: f, label: f }))}
+          options={((selectionMode ? shiyeFilterOptions?.funding_sources : filterOptions?.funding_sources) || []).map((f: string) => ({ value: f, label: f }))}
         />
         <Select
           placeholder="招聘对象" value={recruitmentTarget} allowClear style={{ width: 120 }}
           onChange={(v) => { setRecruitmentTarget(v); setParams(p => ({ ...p, page: 1 })); }}
-          options={(filterOptions?.recruitment_targets || []).map((r: string) => ({ value: r, label: r }))}
+          options={((selectionMode ? shiyeFilterOptions?.recruitment_targets : filterOptions?.recruitment_targets) || []).map((r: string) => ({ value: r, label: r }))}
         />
+        {selectionMode && (
+          <Select
+            mode="multiple"
+            placeholder="岗位性质偏好"
+            value={postNatures}
+            allowClear
+            style={{ width: 220 }}
+            onChange={(v) => { setPostNatures(v); setParams(p => ({ ...p, page: 1 })); }}
+            options={(shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗', '待确认']).map((nature: string) => ({ value: nature, label: nature }))}
+          />
+        )}
+        {selectionMode && (
+          <Select
+            mode="multiple"
+            placeholder="推荐层级筛选"
+            value={recommendationTiers}
+            allowClear
+            style={{ width: 220 }}
+            onChange={(v) => { setRecommendationTiers(v); setParams(p => ({ ...p, page: 1 })); }}
+            options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
+          />
+        )}
         {!selectionMode && (
           <Select
             placeholder="学历要求" value={education} allowClear style={{ width: 140 }}
@@ -353,7 +468,7 @@ export default function ShiyePositionList() {
         title={selectedPosition?.title || '岗位详情'}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
-        width={520}
+        size="large"
       >
         {selectedPosition && (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -369,11 +484,43 @@ export default function ShiyePositionList() {
               <p><b>开考比例：</b>{selectedPosition.exam_ratio || '-'}</p>
               <p><b>招聘对象：</b>{selectedPosition.recruitment_target || '-'}</p>
             </Card>
+            {selectionMode && (
+              <Card size="small" title="匹配结果">
+                <p><b>匹配状态：</b>{selectedPosition.eligibility_status === 'hard_pass' ? '硬匹配' : selectedPosition.eligibility_status === 'manual_review_needed' ? '需人工确认' : '-'}</p>
+                <p><b>匹配来源：</b>{selectedPosition.match_source || '-'}</p>
+                <p><b>推荐层级：</b>{selectedPosition.recommendation_tier || '-'}</p>
+                <p><b>岗位性质：</b>{selectedPosition.post_nature || '-'}</p>
+                <p><b>风险标签：</b>{selectedPosition.risk_tags?.length ? selectedPosition.risk_tags.join('、') : '无'}</p>
+                <p><b>人工确认：</b>{selectedPosition.manual_review_flags?.length ? selectedPosition.manual_review_flags.join('、') : '无'}</p>
+              </Card>
+            )}
             <Card size="small" title="报考条件">
               <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
               <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
               <p><b>其他条件：</b>{selectedPosition.other_requirements || '无'}</p>
+              <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
             </Card>
+            {selectionMode && selectedPosition.match_reasons?.length ? (
+              <Card size="small" title="匹配依据">
+                <Space size={[0, 8]} wrap>
+                  {selectedPosition.match_reasons.map(reason => <Tag key={reason}>{reason}</Tag>)}
+                </Space>
+              </Card>
+            ) : null}
+            {selectionMode && selectedPosition.sort_reasons?.length ? (
+              <Card size="small" title="排序依据">
+                <Space size={[0, 8]} wrap>
+                  {selectedPosition.sort_reasons.map(reason => <Tag key={reason} color="blue">{reason}</Tag>)}
+                </Space>
+              </Card>
+            ) : null}
+            {selectionMode && selectedPosition.recommendation_reasons?.length ? (
+              <Card size="small" title="推荐分层依据">
+                <Space size={[0, 8]} wrap>
+                  {selectedPosition.recommendation_reasons.map(reason => <Tag key={reason} color="purple">{reason}</Tag>)}
+                </Space>
+              </Card>
+            ) : null}
             <Card size="small" title="竞争数据">
               <Row gutter={16}>
                 <Col span={8}><Statistic title="报名人数" value={selectedPosition.apply_count ?? '-'} /></Col>
