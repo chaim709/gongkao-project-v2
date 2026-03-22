@@ -1,5 +1,9 @@
 import client from './client';
-import type { MatchResult, ShiyeSelectionFilterOptions } from '../types/position';
+import type {
+  MatchResult,
+  PositionDetailExtension,
+  ShiyeSelectionFilterOptions,
+} from '../types/position';
 
 export const positionApi = {
   list: (params: {
@@ -21,6 +25,9 @@ export const positionApi = {
 
   analysis: (id: number) =>
     client.get(`/positions/analysis/${id}`),
+
+  detailExtension: (id: number, params?: { limit?: number }) =>
+    client.get<PositionDetailExtension>(`/positions/${id}/detail-extension`, { params }),
 
   recommend: (studentId: number, params?: {
     year?: number;

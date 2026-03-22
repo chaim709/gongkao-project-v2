@@ -3,6 +3,7 @@ export interface Position {
   title?: string;
   department?: string;
   location?: string;
+  selection_location?: string;
   city?: string;
   education?: string;
   major?: string;
@@ -51,12 +52,18 @@ export interface Position {
   recommendation_tier?: '冲刺' | '稳妥' | '保底';
   recommendation_reasons?: string[];
   post_nature?: string;
+  similarity_score?: number;
   risk_tags?: string[];
   risk_reasons?: string[];
   risk_score?: number;
   manual_review_flags?: string[];
   normalized_funding_source?: string;
   normalized_recruitment_target?: string;
+}
+
+export interface PositionDetailExtension {
+  history_items: Position[];
+  related_items: Position[];
 }
 
 export interface PositionFilterOptions {

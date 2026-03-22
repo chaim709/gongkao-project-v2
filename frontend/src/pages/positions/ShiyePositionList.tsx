@@ -1,5 +1,5 @@
-import { useState, useEffect, type CSSProperties } from 'react';
-import { Input, Select, Tag, Space, Button, message } from 'antd';
+import { useState, useEffect, useRef, type CSSProperties } from 'react';
+import { Input, Select, Tag, Space, Button, message, Card, Empty, List, Spin, Typography } from 'antd';
 import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { positionApi } from '../../api/positions';
@@ -128,6 +128,7 @@ export default function ShiyePositionList() {
   const [matchConditions, setMatchConditions] = useState<ShiyeSelectionConditions | null>(null);
 
   const [reportLoading, setReportLoading] = useState(false);
+  const latestMatchRequestRef = useRef(0);
 
   const allColumns = [
     { key: 'city', label: '地市', width: 80 },
@@ -211,6 +212,16 @@ export default function ShiyePositionList() {
       sort_by: sortBy, sort_order: sortOrder,
     }),
     enabled: !selectionMode,
+    staleTime: 0,
+    gcTime: 5000,
+  });
+
+  const { data: detailExtension, isLoading: detailExtensionLoading } = useQuery({
+    queryKey: ['shiye-position-detail-extension', selectedPosition?.id],
+    queryFn: () => selectedPosition ? positionApi.detailExtension(selectedPosition.id, { limit: 6 }) : null,
+    enabled: !!selectedPosition,
+    staleTime: 0,
+    gcTime: 5000,
   });
 
   const buildSelectionCriteria = (conditions: ShiyeSelectionConditions) => ({
@@ -240,6 +251,8 @@ export default function ShiyePositionList() {
   });
 
   const clearSelectionState = () => {
+    latestMatchRequestRef.current += 1;
+    setMatchLoading(false);
     setMatchResult(null);
     setMatchSummary(undefined);
     setMatchConditions(null);
@@ -264,16 +277,25 @@ export default function ShiyePositionList() {
   };
 
   const handleMatch = async (conditions: ShiyeSelectionConditions) => {
+    const requestId = latestMatchRequestRef.current + 1;
+    latestMatchRequestRef.current = requestId;
     setMatchLoading(true);
     setMatchConditions(conditions);
+    setMatchResult(null);
+    setMatchSummary(undefined);
     try {
       const selectionResult = await positionApi.shiyeSelectionSearch(buildSelectionPayload(conditions));
+      if (requestId !== latestMatchRequestRef.current) {
+        return;
+      }
       setMatchResult(selectionResult);
       setMatchSummary(selectionResult.summary);
     } catch {
       // ignore
     } finally {
-      setMatchLoading(false);
+      if (requestId === latestMatchRequestRef.current) {
+        setMatchLoading(false);
+      }
     }
   };
 
@@ -678,6 +700,9 @@ export default function ShiyePositionList() {
     </>
   );
 
+  const historyItems = detailExtension?.history_items || [];
+  const relatedItems = detailExtension?.related_items || [];
+
   const detailContent = selectedPosition ? (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
       <PositionDetailInfoCard
@@ -745,6 +770,95 @@ export default function ShiyePositionList() {
           },
         ]}
       />
+      <Card size="small" title="历年岗位信息">
+        {detailExtensionLoading ? (
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <Spin size="small" />
+          </div>
+        ) : historyItems.length ? (
+          <List
+            size="small"
+            dataSource={historyItems}
+            renderItem={(item) => (
+              <List.Item>
+                <div style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                    <a onClick={() => openPositionDetail(item)}>
+                      {item.year || '-'}年 · {item.title || item.department || '历史岗位'}
+                    </a>
+                    <span style={{ color: '#8c8c8c', whiteSpace: 'nowrap' }}>
+                      {item.competition_ratio ? `${item.competition_ratio.toFixed(0)}:1` : '竞争比暂无'}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: 4, color: '#595959', fontSize: 12 }}>
+                    {item.department || '-'} · {item.city || '-'} · {(item.selection_location || item.location || '-')}
+                  </div>
+                </div>
+              </List.Item>
+            )}
+          />
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="当前库中暂无该岗位历年数据，导入往年岗位表后会在这里展示。"
+          />
+        )}
+      </Card>
+      <Card size="small" title="其他推荐岗位">
+        {detailExtensionLoading ? (
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <Spin size="small" />
+          </div>
+        ) : relatedItems.length ? (
+          <List
+            size="small"
+            dataSource={relatedItems}
+            renderItem={(item) => (
+              <List.Item>
+                <div style={{ width: '100%' }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <a onClick={() => openPositionDetail(item)}>
+                        {item.title || item.department || '推荐岗位'}
+                      </a>
+                      <div style={{ marginTop: 4, color: '#595959', fontSize: 12 }}>
+                        {item.department || '-'} · {item.city || '-'} · {(item.selection_location || item.location || '-')}
+                      </div>
+                    </div>
+                    <Typography.Text style={{ whiteSpace: 'nowrap', color: '#1677ff' }}>
+                      相似度 {item.similarity_score || 0}
+                    </Typography.Text>
+                  </div>
+                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {(item.match_reasons || []).slice(0, 4).map((reason) => (
+                      <Tag key={`${item.id}-${reason}`} color="blue">
+                        {reason}
+                      </Tag>
+                    ))}
+                    {(item.risk_tags || []).slice(0, 2).map((tag) => (
+                      <Tag key={`${item.id}-${tag}`} color={tag === '高竞争' || tag === '高分线' ? 'red' : 'orange'}>
+                        {tag}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              </List.Item>
+            )}
+          />
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="当前暂无可推荐的相似岗位。"
+          />
+        )}
+      </Card>
       {selectedPosition.description ? (
         <PositionDetailTextCard title="岗位描述" content={selectedPosition.description} />
       ) : null}

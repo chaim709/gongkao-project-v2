@@ -10,7 +10,8 @@ from app.schemas.position import (
     PositionCreate, PositionResponse, PositionListResponse,
     PositionFilterOptions, PositionMatchFilterRequest,
     PDFReportRequest, PositionCompareRequest, PositionFavoriteCreateRequest,
-    ShiyeSelectionFilterOptionsResponse, ShiyeSelectionSearchRequest,
+    PositionDetailExtensionResponse, ShiyeSelectionFilterOptionsResponse,
+    ShiyeSelectionSearchRequest,
 )
 from typing import Optional, List
 import time
@@ -793,6 +794,28 @@ async def smart_import_positions(
 
 
 # ===== 通用 ID 查询（必须放在最后，避免拦截其他路由） =====
+
+@router.get("/{position_id}/detail-extension", response_model=PositionDetailExtensionResponse)
+async def get_position_detail_extension(
+    position_id: int,
+    limit: int = Query(6, ge=1, le=20, description="related_items 返回条数"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取岗位详情扩展信息（历史岗位 + 同年相关推荐岗位）"""
+    from app.services.position_detail_extension_service import (
+        PositionDetailExtensionService,
+    )
+
+    result = await PositionDetailExtensionService.get_detail_extension(
+        db=db,
+        position_id=position_id,
+        related_limit=limit,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="岗位不存在")
+    return result
+
 
 @router.get("/{position_id}", response_model=PositionResponse)
 async def get_position(
