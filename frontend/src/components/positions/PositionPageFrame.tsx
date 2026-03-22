@@ -53,6 +53,7 @@ interface PositionPageFrameProps {
   pagination: TableProps<Position>['pagination'];
   tableScroll?: TableProps<Position>['scroll'];
   tableSize?: TableProps<Position>['size'];
+  tableLayout?: TableProps<Position>['tableLayout'];
   detailTitle: ReactNode;
   detailOpen: boolean;
   onDetailClose: () => void;
@@ -90,6 +91,7 @@ export default function PositionPageFrame({
   pagination,
   tableScroll = { x: 1000 },
   tableSize = 'middle',
+  tableLayout,
   detailTitle,
   detailOpen,
   onDetailClose,
@@ -166,6 +168,7 @@ export default function PositionPageFrame({
         pagination={pagination}
         scroll={tableScroll}
         size={tableSize}
+        tableLayout={tableLayout}
       />
 
       <Drawer

@@ -33,6 +33,7 @@ const DEFAULT_VISIBLE_COLUMNS = [
 ];
 
 const COLUMN_STORAGE_KEY = 'shiye_position_columns_v2';
+const DEFAULT_TABLE_SCROLL_X = 'max-content';
 
 const EXAM_CATEGORY_COLORS: Record<string, string> = {
   管理类: 'blue',
@@ -106,19 +107,19 @@ export default function ShiyePositionList() {
 
   const allColumns = [
     { key: 'city', label: '地市', width: 80 },
-    { key: 'title', label: '岗位名称', width: 140 },
-    { key: 'match_source', label: '匹配来源', width: 120 },
+    { key: 'title', label: '岗位名称', width: 180 },
+    { key: 'match_source', label: '匹配来源', width: 132 },
     { key: 'eligibility_status', label: '匹配状态', width: 110 },
     { key: 'recommendation_tier', label: '推荐层级', width: 100 },
     { key: 'post_nature', label: '岗位性质', width: 100 },
-    { key: 'exam_category', label: '笔试类别', width: 90 },
-    { key: 'education', label: '学历', width: 110 },
-    { key: 'major', label: '专业要求', width: 150 },
-    { key: 'recruitment_count', label: '招录', width: 60 },
+    { key: 'exam_category', label: '笔试类别', width: 140 },
+    { key: 'education', label: '学历', width: 120 },
+    { key: 'major', label: '专业要求', width: 260 },
+    { key: 'recruitment_count', label: '招录', width: 72 },
     { key: 'apply_count', label: '报名人数', width: 90 },
     { key: 'competition_ratio', label: '竞争比', width: 80 },
-    { key: 'risk_tags', label: '风险标签', width: 180 },
-    { key: 'remark', label: '备注', width: 150 },
+    { key: 'risk_tags', label: '风险标签', width: 220 },
+    { key: 'remark', label: '备注', width: 240 },
     { key: 'department', label: '招聘单位', width: 180 },
     { key: 'location', label: '区县', width: 90 },
     { key: 'supervising_dept', label: '主管部门', width: 160 },
@@ -273,9 +274,9 @@ export default function ShiyePositionList() {
 
   const columnMap: Record<string, any> = {
     title: {
-      title: '岗位名称', dataIndex: 'title', width: 140, ellipsis: true,
+      title: '岗位名称', dataIndex: 'title', width: 180, ellipsis: true,
       render: (v: string, record: Position) => (
-        <a onClick={() => openPositionDetail(record)}>
+        <a onClick={() => openPositionDetail(record)} title={v || record.department || '-'}>
           {v || record.department || '-'}
         </a>
       ),
@@ -293,7 +294,7 @@ export default function ShiyePositionList() {
       },
     },
     match_source: {
-      title: '匹配来源', dataIndex: 'match_source', width: 120,
+      title: '匹配来源', dataIndex: 'match_source', width: 132,
       render: (v: string) => {
         const colors: Record<string, string> = {
           '专业精确匹配': 'green',
@@ -319,7 +320,7 @@ export default function ShiyePositionList() {
       },
     },
     risk_tags: {
-      title: '风险标签', dataIndex: 'risk_tags', width: 180,
+      title: '风险标签', dataIndex: 'risk_tags', width: 220,
       render: (tags: string[]) => tags?.length ? (
         <Space size={[0, 4]} wrap>
           {tags.map(tag => <Tag key={tag} color={tag === '高竞争' || tag === '高分线' ? 'red' : 'orange'}>{tag}</Tag>)}
@@ -327,7 +328,7 @@ export default function ShiyePositionList() {
       ) : '-',
     },
     exam_category: {
-      title: '笔试类别', dataIndex: 'exam_category', width: 90,
+      title: '笔试类别', dataIndex: 'exam_category', width: 140,
       render: (v: string) => {
         if (!v) return '-';
         let color = EXAM_CATEGORY_COLORS[v];
@@ -343,7 +344,7 @@ export default function ShiyePositionList() {
     education: {
       title: '学历',
       dataIndex: 'education',
-      width: 110,
+      width: 120,
       ellipsis: true,
       render: (v: string) => {
         const label = formatEducationText(v);
@@ -354,8 +355,18 @@ export default function ShiyePositionList() {
         );
       },
     },
-    major: { title: '专业要求', dataIndex: 'major', width: 150, ellipsis: true },
-    recruitment_count: { title: '招录', dataIndex: 'recruitment_count', width: 60, align: 'center' },
+    major: {
+      title: '专业要求',
+      dataIndex: 'major',
+      width: 260,
+      ellipsis: true,
+      render: (v: string) => (
+        <span title={v || '-'}>
+          {v || '-'}
+        </span>
+      ),
+    },
+    recruitment_count: { title: '招录', dataIndex: 'recruitment_count', width: 72, align: 'center' },
     funding_source: {
       title: '经费来源', dataIndex: 'funding_source', width: 100,
       render: (v: string, record: Position) => {
@@ -397,7 +408,17 @@ export default function ShiyePositionList() {
     degree: { title: '学位', dataIndex: 'degree', width: 90 },
     exam_weight_ratio: { title: '笔面试占比', dataIndex: 'exam_weight_ratio', width: 130, ellipsis: true },
     interview_ratio: { title: '面试比例', dataIndex: 'interview_ratio', width: 100 },
-    remark: { title: '备注', dataIndex: 'remark', width: 150, ellipsis: true },
+    remark: {
+      title: '备注',
+      dataIndex: 'remark',
+      width: 240,
+      ellipsis: true,
+      render: (v: string) => (
+        <span title={v || '-'}>
+          {v || '-'}
+        </span>
+      ),
+    },
   };
 
   const columns: ColumnsType<Position> = visibleColumns
@@ -648,7 +669,8 @@ export default function ShiyePositionList() {
       } : undefined}
       onTableChange={handleTableChange}
       pagination={buildPagination(currentData?.total || 0)}
-      tableScroll={{ x: 1200 }}
+      tableScroll={{ x: DEFAULT_TABLE_SCROLL_X }}
+      tableLayout="fixed"
       detailTitle={selectedPosition?.title || '岗位详情'}
       detailOpen={detailOpen}
       onDetailClose={closePositionDetail}
