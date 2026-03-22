@@ -1,10 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Input, Select, Tag, Card, Row, Col, Statistic, Space, Button, message } from 'antd';
+import { Input, Select, Tag, Space, Button, message } from 'antd';
 import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { positionApi } from '../../api/positions';
 import SelectionModePanel from '../../components/positions/SelectionModePanel';
 import PositionPageFrame from '../../components/positions/PositionPageFrame';
+import {
+  PositionDetailInfoCard,
+  PositionDetailStatsCard,
+  PositionDetailTagListCard,
+  PositionDetailTextCard,
+} from '../../components/positions/PositionDetailBlocks';
+import usePositionPageState from '../../components/positions/usePositionPageState';
 import type { Position, MatchResult, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
 
@@ -17,8 +24,24 @@ interface SelectionConditions {
   student_id?: number;
 }
 
+const DEFAULT_VISIBLE_COLUMNS = [
+  'title',
+  'department',
+  'city',
+  'location',
+  'match_source',
+  'recommendation_tier',
+  'post_nature',
+  'risk_tags',
+  'exam_category',
+  'education',
+  'recruitment_count',
+  'apply_count',
+  'competition_ratio',
+  'min_interview_score',
+];
+
 export default function ShiyePositionList() {
-  const [params, setParams] = useState({ page: 1, page_size: 20 });
   const [search, setSearch] = useState('');
   const [year, setYear] = useState<number>();
   const [city, setCity] = useState<string>();
@@ -29,12 +52,6 @@ export default function ShiyePositionList() {
   const [recruitmentTarget, setRecruitmentTarget] = useState<string>();
   const [postNatures, setPostNatures] = useState<string[]>([]);
   const [recommendationTiers, setRecommendationTiers] = useState<string[]>([]);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
-  const [sortBy, setSortBy] = useState<string>();
-  const [sortOrder, setSortOrder] = useState<string>();
-  const [columnSettingOpen, setColumnSettingOpen] = useState(false);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
 
   // 选岗模式状态
   const [selectionMode, setSelectionMode] = useState(false);
@@ -44,9 +61,6 @@ export default function ShiyePositionList() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchConditions, setMatchConditions] = useState<SelectionConditions | null>(null);
 
-  // 对比功能状态
-  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
-  const [compareOpen, setCompareOpen] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
   const allColumns = [
@@ -79,19 +93,33 @@ export default function ShiyePositionList() {
     { key: 'remark', label: '备注', width: 150 },
   ];
 
-  useEffect(() => {
-    const saved = localStorage.getItem('shiye_position_columns');
-    if (saved) {
-      setVisibleColumns(JSON.parse(saved));
-    } else {
-      setVisibleColumns(['title', 'department', 'city', 'location', 'match_source', 'recommendation_tier', 'post_nature', 'risk_tags', 'exam_category', 'education', 'recruitment_count', 'apply_count', 'competition_ratio', 'min_interview_score']);
-    }
-  }, []);
-
-  const saveColumnConfig = () => {
-    localStorage.setItem('shiye_position_columns', JSON.stringify(visibleColumns));
-    setColumnSettingOpen(false);
-  };
+  const {
+    params,
+    resetToFirstPage,
+    detailOpen,
+    selectedPosition,
+    openPositionDetail,
+    closePositionDetail,
+    sortBy,
+    sortOrder,
+    handleTableChange,
+    columnSettingOpen,
+    openColumnSetting,
+    closeColumnSetting,
+    visibleColumns,
+    setVisibleColumns,
+    saveColumnConfig,
+    selectedRowKeys,
+    setSelectedRowKeys,
+    compareOpen,
+    openCompare,
+    closeCompare,
+    clearSelectedRowKeys,
+    buildPagination,
+  } = usePositionPageState<Position>({
+    columnStorageKey: 'shiye_position_columns',
+    defaultVisibleColumns: DEFAULT_VISIBLE_COLUMNS,
+  });
 
   const { data: filterOptions } = useQuery({
     queryKey: ['shiye-filters', year],
@@ -148,8 +176,8 @@ export default function ShiyePositionList() {
     setMatchSummary(undefined);
     setMatchConditions(null);
     setRecommendationTiers([]);
-    setSelectedRowKeys([]);
-    setCompareOpen(false);
+    clearSelectedRowKeys();
+    closeCompare();
   };
 
   const handleMatch = async (conditions: SelectionConditions) => {
@@ -201,7 +229,7 @@ export default function ShiyePositionList() {
     title: {
       title: '岗位名称', dataIndex: 'title', width: 140, ellipsis: true,
       render: (v: string, record: Position) => (
-        <a onClick={() => { setSelectedPosition(record); setDetailOpen(true); }}>
+        <a onClick={() => openPositionDetail(record)}>
           {v || record.department || '-'}
         </a>
       ),
@@ -316,47 +344,47 @@ export default function ShiyePositionList() {
         <>
           <Select
             placeholder="选择年份" value={year} allowClear style={{ width: 110 }}
-            onChange={(v) => { setYear(v); setCity(undefined); setLocation(undefined); setParams(p => ({ ...p, page: 1 })); }}
+            onChange={(v) => { setYear(v); setCity(undefined); setLocation(undefined); resetToFirstPage(); }}
             options={(filterOptions?.years || []).map((y: number) => ({ value: y, label: `${y}年` }))}
           />
           <Input
             placeholder="搜索岗位/单位/专业" prefix={<SearchOutlined />} style={{ width: 220 }} allowClear
-            onChange={(e) => { setSearch(e.target.value); setParams(p => ({ ...p, page: 1 })); }}
+            onChange={(e) => { setSearch(e.target.value); resetToFirstPage(); }}
           />
         </>
       )}
       <Select
         placeholder="选择地市" value={city} allowClear style={{ width: 130 }} showSearch
-        onChange={(v) => { setCity(v); setLocation(undefined); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setCity(v); setLocation(undefined); resetToFirstPage(); }}
         options={((selectionMode ? shiyeFilterOptions?.cities : filterOptions?.cities) || []).map((c: string) => ({ value: c, label: c }))}
       />
       {city && !selectionMode && filterOptions?.city_locations?.[city]?.length > 0 && (
         <Select
           placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
-          onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setLocation(v); resetToFirstPage(); }}
           options={filterOptions.city_locations[city].map((l: string) => ({ value: l, label: l }))}
         />
       )}
       {city && selectionMode && (
         <Select
           placeholder="选择区县" value={location} allowClear style={{ width: 130 }} showSearch
-          onChange={(v) => { setLocation(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setLocation(v); resetToFirstPage(); }}
           options={(shiyeFilterOptions?.locations || []).map((l: string) => ({ value: l, label: l }))}
         />
       )}
       <Select
         placeholder="笔试类别" value={examCategory} allowClear style={{ width: 120 }}
-        onChange={(v) => { setExamCategory(v); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setExamCategory(v); resetToFirstPage(); }}
         options={((selectionMode ? shiyeFilterOptions?.exam_categories : filterOptions?.exam_categories) || []).map((c: string) => ({ value: c, label: c }))}
       />
       <Select
         placeholder="经费来源" value={fundingSource} allowClear style={{ width: 120 }}
-        onChange={(v) => { setFundingSource(v); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setFundingSource(v); resetToFirstPage(); }}
         options={((selectionMode ? shiyeFilterOptions?.funding_sources : filterOptions?.funding_sources) || []).map((f: string) => ({ value: f, label: f }))}
       />
       <Select
         placeholder="招聘对象" value={recruitmentTarget} allowClear style={{ width: 120 }}
-        onChange={(v) => { setRecruitmentTarget(v); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setRecruitmentTarget(v); resetToFirstPage(); }}
         options={((selectionMode ? shiyeFilterOptions?.recruitment_targets : filterOptions?.recruitment_targets) || []).map((r: string) => ({ value: r, label: r }))}
       />
       {selectionMode && (
@@ -366,7 +394,7 @@ export default function ShiyePositionList() {
           value={postNatures}
           allowClear
           style={{ width: 220 }}
-          onChange={(v) => { setPostNatures(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setPostNatures(v); resetToFirstPage(); }}
           options={(shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗', '待确认']).map((nature: string) => ({ value: nature, label: nature }))}
         />
       )}
@@ -377,86 +405,91 @@ export default function ShiyePositionList() {
           value={recommendationTiers}
           allowClear
           style={{ width: 220 }}
-          onChange={(v) => { setRecommendationTiers(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setRecommendationTiers(v); resetToFirstPage(); }}
           options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
         />
       )}
       {!selectionMode && (
         <Select
           placeholder="学历要求" value={education} allowClear style={{ width: 140 }}
-          onChange={(v) => { setEducation(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setEducation(v); resetToFirstPage(); }}
           options={(filterOptions?.educations || []).map((e: string) => ({ value: e, label: e }))}
         />
       )}
-      <Button icon={<SettingOutlined />} onClick={() => setColumnSettingOpen(true)}>列设置</Button>
+      <Button icon={<SettingOutlined />} onClick={openColumnSetting}>列设置</Button>
     </>
   );
 
   const detailContent = selectedPosition ? (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small" title="基本信息">
-        <p><b>招聘单位：</b>{selectedPosition.department || '-'}</p>
-        <p><b>主管部门：</b>{selectedPosition.supervising_dept || '-'}</p>
-        <p><b>岗位代码：</b>{selectedPosition.position_code || '-'}</p>
-        <p><b>地市：</b>{selectedPosition.city || '-'}</p>
-        <p><b>区县：</b>{selectedPosition.location || '-'}</p>
-        <p><b>经费来源：</b>{selectedPosition.funding_source || '-'}</p>
-        <p><b>笔试类别：</b>{selectedPosition.exam_category || '-'}</p>
-        <p><b>招录人数：</b>{selectedPosition.recruitment_count}</p>
-        <p><b>开考比例：</b>{selectedPosition.exam_ratio || '-'}</p>
-        <p><b>招聘对象：</b>{selectedPosition.recruitment_target || '-'}</p>
-      </Card>
+      <PositionDetailInfoCard
+        title="基本信息"
+        items={[
+          { key: 'department', label: '招聘单位', value: selectedPosition.department || '-' },
+          { key: 'supervising_dept', label: '主管部门', value: selectedPosition.supervising_dept || '-' },
+          { key: 'position_code', label: '岗位代码', value: selectedPosition.position_code || '-' },
+          { key: 'city', label: '地市', value: selectedPosition.city || '-' },
+          { key: 'location', label: '区县', value: selectedPosition.location || '-' },
+          { key: 'funding_source', label: '经费来源', value: selectedPosition.funding_source || '-' },
+          { key: 'exam_category', label: '笔试类别', value: selectedPosition.exam_category || '-' },
+          { key: 'recruitment_count', label: '招录人数', value: selectedPosition.recruitment_count },
+          { key: 'exam_ratio', label: '开考比例', value: selectedPosition.exam_ratio || '-' },
+          { key: 'recruitment_target', label: '招聘对象', value: selectedPosition.recruitment_target || '-' },
+        ]}
+      />
       {selectionMode && (
-        <Card size="small" title="匹配结果">
-          <p><b>匹配状态：</b>{selectedPosition.eligibility_status === 'hard_pass' ? '硬匹配' : selectedPosition.eligibility_status === 'manual_review_needed' ? '需人工确认' : '-'}</p>
-          <p><b>匹配来源：</b>{selectedPosition.match_source || '-'}</p>
-          <p><b>推荐层级：</b>{selectedPosition.recommendation_tier || '-'}</p>
-          <p><b>岗位性质：</b>{selectedPosition.post_nature || '-'}</p>
-          <p><b>风险标签：</b>{selectedPosition.risk_tags?.length ? selectedPosition.risk_tags.join('、') : '无'}</p>
-          <p><b>人工确认：</b>{selectedPosition.manual_review_flags?.length ? selectedPosition.manual_review_flags.join('、') : '无'}</p>
-        </Card>
+        <PositionDetailInfoCard
+          title="匹配结果"
+          items={[
+            {
+              key: 'eligibility_status',
+              label: '匹配状态',
+              value:
+                selectedPosition.eligibility_status === 'hard_pass'
+                  ? '硬匹配'
+                  : selectedPosition.eligibility_status === 'manual_review_needed'
+                    ? '需人工确认'
+                    : '-',
+            },
+            { key: 'match_source', label: '匹配来源', value: selectedPosition.match_source || '-' },
+            { key: 'recommendation_tier', label: '推荐层级', value: selectedPosition.recommendation_tier || '-' },
+            { key: 'post_nature', label: '岗位性质', value: selectedPosition.post_nature || '-' },
+            { key: 'risk_tags', label: '风险标签', value: selectedPosition.risk_tags?.length ? selectedPosition.risk_tags.join('、') : '无' },
+            { key: 'manual_review_flags', label: '人工确认', value: selectedPosition.manual_review_flags?.length ? selectedPosition.manual_review_flags.join('、') : '无' },
+          ]}
+        />
       )}
-      <Card size="small" title="报考条件">
-        <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
-        <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
-        <p><b>其他条件：</b>{selectedPosition.other_requirements || '无'}</p>
-        <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
-      </Card>
-      {selectionMode && selectedPosition.match_reasons?.length ? (
-        <Card size="small" title="匹配依据">
-          <Space size={[0, 8]} wrap>
-            {selectedPosition.match_reasons.map(reason => <Tag key={reason}>{reason}</Tag>)}
-          </Space>
-        </Card>
+      <PositionDetailInfoCard
+        title="报考条件"
+        items={[
+          { key: 'education', label: '学历要求', value: selectedPosition.education || '-' },
+          { key: 'major', label: '专业要求', value: selectedPosition.major || '不限' },
+          { key: 'other_requirements', label: '其他条件', value: selectedPosition.other_requirements || '无' },
+          { key: 'remark', label: '备注', value: selectedPosition.remark || '无' },
+        ]}
+      />
+      {selectionMode ? <PositionDetailTagListCard title="匹配依据" items={selectedPosition.match_reasons} /> : null}
+      {selectionMode ? <PositionDetailTagListCard title="排序依据" items={selectedPosition.sort_reasons} tagColor="blue" /> : null}
+      {selectionMode ? <PositionDetailTagListCard title="推荐分层依据" items={selectedPosition.recommendation_reasons} tagColor="purple" /> : null}
+      <PositionDetailStatsCard
+        title="竞争数据"
+        items={[
+          { key: 'apply_count', title: '报名人数', value: selectedPosition.apply_count ?? '-' },
+          {
+            key: 'competition_ratio',
+            title: '竞争比',
+            value: selectedPosition.competition_ratio ? `${selectedPosition.competition_ratio.toFixed(0)}:1` : '-',
+          },
+          {
+            key: 'min_interview_score',
+            title: '进面最低分',
+            value: selectedPosition.min_interview_score ? selectedPosition.min_interview_score.toFixed(1) : '-',
+          },
+        ]}
+      />
+      {selectedPosition.description ? (
+        <PositionDetailTextCard title="岗位描述" content={selectedPosition.description} />
       ) : null}
-      {selectionMode && selectedPosition.sort_reasons?.length ? (
-        <Card size="small" title="排序依据">
-          <Space size={[0, 8]} wrap>
-            {selectedPosition.sort_reasons.map(reason => <Tag key={reason} color="blue">{reason}</Tag>)}
-          </Space>
-        </Card>
-      ) : null}
-      {selectionMode && selectedPosition.recommendation_reasons?.length ? (
-        <Card size="small" title="推荐分层依据">
-          <Space size={[0, 8]} wrap>
-            {selectedPosition.recommendation_reasons.map(reason => <Tag key={reason} color="purple">{reason}</Tag>)}
-          </Space>
-        </Card>
-      ) : null}
-      <Card size="small" title="竞争数据">
-        <Row gutter={16}>
-          <Col span={8}><Statistic title="报名人数" value={selectedPosition.apply_count ?? '-'} /></Col>
-          <Col span={8}>
-            <Statistic title="竞争比" value={selectedPosition.competition_ratio ? `${selectedPosition.competition_ratio.toFixed(0)}:1` : '-'} />
-          </Col>
-          <Col span={8}><Statistic title="进面最低分" value={selectedPosition.min_interview_score ? selectedPosition.min_interview_score.toFixed(1) : '-'} /></Col>
-        </Row>
-      </Card>
-      {selectedPosition.description && (
-        <Card size="small" title="岗位描述">
-          <p>{selectedPosition.description}</p>
-        </Card>
-      )}
     </Space>
   ) : null;
 
@@ -491,36 +524,24 @@ export default function ShiyePositionList() {
           setSelectedRowKeys(keys as number[]);
         },
       } : undefined}
-      onTableChange={(_pagination, _filters, sorter) => {
-        if (!Array.isArray(sorter) && sorter.field) {
-          const field = String(sorter.field);
-          if (sorter.order) { setSortBy(field); setSortOrder(sorter.order === 'ascend' ? 'asc' : 'desc'); }
-          else { setSortBy(undefined); setSortOrder(undefined); }
-        }
-      }}
-      pagination={{
-        current: params.page, pageSize: params.page_size,
-        total: currentData?.total || 0,
-        showTotal: (total) => `共 ${total} 个岗位`,
-        showSizeChanger: true, pageSizeOptions: ['20', '50', '100'],
-        onChange: (page, pageSize) => setParams(p => ({ ...p, page, page_size: pageSize })),
-      }}
+      onTableChange={handleTableChange}
+      pagination={buildPagination(currentData?.total || 0)}
       tableScroll={{ x: 1200 }}
       detailTitle={selectedPosition?.title || '岗位详情'}
       detailOpen={detailOpen}
-      onDetailClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
+      onDetailClose={closePositionDetail}
       detailDrawerSize="large"
       detailContent={detailContent}
       selectedPositionIds={selectedRowKeys}
       compareOpen={compareOpen}
-      onCloseCompare={() => setCompareOpen(false)}
-      onOpenCompare={() => setCompareOpen(true)}
-      onClearSelected={() => setSelectedRowKeys([])}
+      onCloseCompare={closeCompare}
+      onOpenCompare={openCompare}
+      onClearSelected={clearSelectedRowKeys}
       onGenerateReport={handleGenerateReport}
       reportLoading={reportLoading}
       columnSettingOpen={columnSettingOpen}
       onSaveColumnSetting={saveColumnConfig}
-      onCloseColumnSetting={() => setColumnSettingOpen(false)}
+      onCloseColumnSetting={closeColumnSetting}
       allColumns={allColumns}
       visibleColumns={visibleColumns}
       onVisibleColumnsChange={setVisibleColumns}

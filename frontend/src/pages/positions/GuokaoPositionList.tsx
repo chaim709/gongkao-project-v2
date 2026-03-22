@@ -1,15 +1,33 @@
 import { useState, useEffect } from 'react';
-import { Input, Select, Tag, Card, Row, Col, Statistic, Space, Button, message } from 'antd';
+import { Input, Select, Tag, Space, Button, message } from 'antd';
 import { SearchOutlined, EnvironmentOutlined, TeamOutlined, TrophyOutlined, SettingOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { positionApi } from '../../api/positions';
 import SelectionModePanel from '../../components/positions/SelectionModePanel';
 import PositionPageFrame from '../../components/positions/PositionPageFrame';
+import {
+  PositionAnalysisCard,
+  PositionDetailInfoCard,
+  PositionDetailTextCard,
+} from '../../components/positions/PositionDetailBlocks';
+import usePositionPageState from '../../components/positions/usePositionPageState';
 import type { Position, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
 
+const DEFAULT_VISIBLE_COLUMNS = [
+  'title',
+  'department',
+  'hiring_unit',
+  'province',
+  'city',
+  'institution_level',
+  'education',
+  'recruitment_count',
+  'political_status',
+  'work_experience',
+];
+
 export default function GuokaoPositionList() {
-  const [params, setParams] = useState({ page: 1, page_size: 20 });
   const [search, setSearch] = useState('');
   const [year, setYear] = useState<number>();
   const [province, setProvince] = useState<string>();
@@ -17,12 +35,6 @@ export default function GuokaoPositionList() {
   const [education, setEducation] = useState<string>();
   const [examCategory, setExamCategory] = useState<string>();
   const [institutionLevel, setInstitutionLevel] = useState<string>();
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedPosition, setSelectedPosition] = useState<Position | null>(null);
-  const [sortBy, setSortBy] = useState<string>();
-  const [sortOrder, setSortOrder] = useState<string>();
-  const [columnSettingOpen, setColumnSettingOpen] = useState(false);
-  const [visibleColumns, setVisibleColumns] = useState<string[]>([]);
 
   // 选岗模式状态
   const [selectionMode, setSelectionMode] = useState(false);
@@ -32,9 +44,6 @@ export default function GuokaoPositionList() {
   const [matchLoading, setMatchLoading] = useState(false);
   const [matchConditions, setMatchConditions] = useState<any>(null);
 
-  // 对比功能状态
-  const [selectedRowKeys, setSelectedRowKeys] = useState<number[]>([]);
-  const [compareOpen, setCompareOpen] = useState(false);
   const [reportLoading, setReportLoading] = useState(false);
 
   // 国考特有列定义
@@ -56,26 +65,40 @@ export default function GuokaoPositionList() {
     { key: 'position_attribute', label: '职位属性', width: 100 },
   ];
 
-  useEffect(() => {
-    const saved = localStorage.getItem('guokao_position_columns');
-    if (saved) {
-      setVisibleColumns(JSON.parse(saved));
-    } else {
-      setVisibleColumns(['title', 'department', 'hiring_unit', 'province', 'city', 'institution_level', 'education', 'recruitment_count', 'political_status', 'work_experience']);
-    }
-  }, []);
-
-  const saveColumnConfig = () => {
-    localStorage.setItem('guokao_position_columns', JSON.stringify(visibleColumns));
-    setColumnSettingOpen(false);
-  };
+  const {
+    params,
+    resetToFirstPage,
+    detailOpen,
+    selectedPosition,
+    openPositionDetail,
+    closePositionDetail,
+    sortBy,
+    sortOrder,
+    handleTableChange,
+    columnSettingOpen,
+    openColumnSetting,
+    closeColumnSetting,
+    visibleColumns,
+    setVisibleColumns,
+    saveColumnConfig,
+    selectedRowKeys,
+    setSelectedRowKeys,
+    compareOpen,
+    openCompare,
+    closeCompare,
+    clearSelectedRowKeys,
+    buildPagination,
+  } = usePositionPageState<Position>({
+    columnStorageKey: 'guokao_position_columns',
+    defaultVisibleColumns: DEFAULT_VISIBLE_COLUMNS,
+  });
 
   const clearSelectionState = () => {
     setMatchResult(null);
     setMatchSummary(undefined);
     setMatchConditions(null);
-    setSelectedRowKeys([]);
-    setCompareOpen(false);
+    clearSelectedRowKeys();
+    closeCompare();
   };
 
   // 筛选选项（锁定 exam_type='国考'）
@@ -171,7 +194,7 @@ export default function GuokaoPositionList() {
     title: {
       title: '招考职位', dataIndex: 'title', width: 160, ellipsis: true,
       render: (v: string, record: Position) => (
-        <a onClick={() => { setSelectedPosition(record); setDetailOpen(true); }}>
+        <a onClick={() => openPositionDetail(record)}>
           {v || record.department || '-'}
         </a>
       ),
@@ -215,97 +238,81 @@ export default function GuokaoPositionList() {
         <>
           <Select
             placeholder="选择年份" value={year} allowClear style={{ width: 110 }}
-            onChange={(v) => { setYear(v); setProvince(undefined); setCity(undefined); setParams(p => ({ ...p, page: 1 })); }}
+            onChange={(v) => { setYear(v); setProvince(undefined); setCity(undefined); resetToFirstPage(); }}
             options={(filterOptions?.years || []).map((y: number) => ({ value: y, label: `${y}年` }))}
           />
           <Input
             placeholder="搜索职位/部门/专业" prefix={<SearchOutlined />} style={{ width: 220 }} allowClear
-            onChange={(e) => { setSearch(e.target.value); setParams(p => ({ ...p, page: 1 })); }}
+            onChange={(e) => { setSearch(e.target.value); resetToFirstPage(); }}
           />
         </>
       )}
       <Select
         placeholder="选择省份" value={province} allowClear style={{ width: 180 }} showSearch
-        onChange={(v) => { setProvince(v); setCity(undefined); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setProvince(v); setCity(undefined); resetToFirstPage(); }}
         options={(filterOptions?.provinces || []).map((p: string) => ({ value: p, label: p }))}
       />
       {province && filterOptions?.province_cities?.[province]?.length > 0 && (
         <Select
           placeholder="选择城市"
           value={city} allowClear style={{ width: 140 }} showSearch
-          onChange={(v) => { setCity(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setCity(v); resetToFirstPage(); }}
           options={filterOptions.province_cities[province].map((c: string) => ({ value: c, label: c }))}
         />
       )}
       <Select
         placeholder="机构层级" value={institutionLevel} allowClear style={{ width: 160 }}
-        onChange={(v) => { setInstitutionLevel(v); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setInstitutionLevel(v); resetToFirstPage(); }}
         options={(filterOptions?.institution_levels || []).map((l: string) => ({ value: l, label: l }))}
       />
       {!selectionMode && (
         <Select
           placeholder="学历要求" value={education} allowClear style={{ width: 140 }}
-          onChange={(v) => { setEducation(v); setParams(p => ({ ...p, page: 1 })); }}
+          onChange={(v) => { setEducation(v); resetToFirstPage(); }}
           options={(filterOptions?.educations || []).map((e: string) => ({ value: e, label: e }))}
         />
       )}
       <Select
         placeholder="考试类别" value={examCategory} allowClear style={{ width: 200 }}
-        onChange={(v) => { setExamCategory(v); setParams(p => ({ ...p, page: 1 })); }}
+        onChange={(v) => { setExamCategory(v); resetToFirstPage(); }}
         options={(filterOptions?.exam_categories || []).map((c: string) => ({ value: c, label: c }))}
       />
-      <Button icon={<SettingOutlined />} onClick={() => setColumnSettingOpen(true)}>列设置</Button>
+      <Button icon={<SettingOutlined />} onClick={openColumnSetting}>列设置</Button>
     </>
   );
 
   const detailContent = selectedPosition ? (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
-      <Card size="small" title="基本信息">
-        <p><b>部门：</b>{selectedPosition.department || '-'}</p>
-        <p><b>用人司局：</b>{selectedPosition.hiring_unit || '-'}</p>
-        <p><b>职位代码：</b>{selectedPosition.position_code || '-'}</p>
-        <p><b>机构层级：</b>{selectedPosition.institution_level || '-'}</p>
-        <p><b>职位属性：</b>{selectedPosition.position_attribute || '-'}</p>
-        <p><b>职位分布：</b>{selectedPosition.position_distribution || '-'}</p>
-        <p><b>工作地点：</b>{selectedPosition.location || '-'}</p>
-        <p><b>落户地点：</b>{selectedPosition.settlement_location || '-'}</p>
-        <p><b>招录人数：</b>{selectedPosition.recruitment_count}</p>
-        <p><b>面试比例：</b>{selectedPosition.interview_ratio || '-'}</p>
-      </Card>
-      <Card size="small" title="报考条件">
-        <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
-        <p><b>学位要求：</b>{selectedPosition.degree || '-'}</p>
-        <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
-        <p><b>政治面貌：</b>{selectedPosition.political_status || '-'}</p>
-        <p><b>基层工作年限：</b>{selectedPosition.work_experience || '-'}</p>
-        <p><b>服务基层项目：</b>{selectedPosition.grassroots_project || '-'}</p>
-        <p><b>其他要求：</b>{selectedPosition.other_requirements || '无'}</p>
-        <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
-      </Card>
-      <Card size="small" title="职位简介">
-        <p>{selectedPosition.description || '暂无简介'}</p>
-      </Card>
-      {analysisData?.success && (
-        <Card size="small" title="智能分析">
-          <Row gutter={16} style={{ marginBottom: 16 }}>
-            <Col span={12}>
-              <Statistic
-                title="竞争度"
-                value={analysisData.data.competition.score}
-                suffix={<Tag color={analysisData.data.competition.level === 'high' ? 'red' : analysisData.data.competition.level === 'medium' ? 'orange' : 'green'}>{analysisData.data.competition.level_text}</Tag>}
-              />
-            </Col>
-            <Col span={12}>
-              <Statistic
-                title="性价比"
-                value={analysisData.data.value.score}
-                suffix={<Tag color={analysisData.data.value.level === 'high' ? 'green' : analysisData.data.value.level === 'medium' ? 'orange' : 'red'}>{analysisData.data.value.level_text}</Tag>}
-              />
-            </Col>
-          </Row>
-          <p style={{ color: '#666', fontSize: '14px' }}>{analysisData.data.recommendation}</p>
-        </Card>
-      )}
+      <PositionDetailInfoCard
+        title="基本信息"
+        items={[
+          { key: 'department', label: '部门', value: selectedPosition.department || '-' },
+          { key: 'hiring_unit', label: '用人司局', value: selectedPosition.hiring_unit || '-' },
+          { key: 'position_code', label: '职位代码', value: selectedPosition.position_code || '-' },
+          { key: 'institution_level', label: '机构层级', value: selectedPosition.institution_level || '-' },
+          { key: 'position_attribute', label: '职位属性', value: selectedPosition.position_attribute || '-' },
+          { key: 'position_distribution', label: '职位分布', value: selectedPosition.position_distribution || '-' },
+          { key: 'location', label: '工作地点', value: selectedPosition.location || '-' },
+          { key: 'settlement_location', label: '落户地点', value: selectedPosition.settlement_location || '-' },
+          { key: 'recruitment_count', label: '招录人数', value: selectedPosition.recruitment_count },
+          { key: 'interview_ratio', label: '面试比例', value: selectedPosition.interview_ratio || '-' },
+        ]}
+      />
+      <PositionDetailInfoCard
+        title="报考条件"
+        items={[
+          { key: 'education', label: '学历要求', value: selectedPosition.education || '-' },
+          { key: 'degree', label: '学位要求', value: selectedPosition.degree || '-' },
+          { key: 'major', label: '专业要求', value: selectedPosition.major || '不限' },
+          { key: 'political_status', label: '政治面貌', value: selectedPosition.political_status || '-' },
+          { key: 'work_experience', label: '基层工作年限', value: selectedPosition.work_experience || '-' },
+          { key: 'grassroots_project', label: '服务基层项目', value: selectedPosition.grassroots_project || '-' },
+          { key: 'other_requirements', label: '其他要求', value: selectedPosition.other_requirements || '无' },
+          { key: 'remark', label: '备注', value: selectedPosition.remark || '无' },
+        ]}
+      />
+      <PositionDetailTextCard title="职位简介" content={selectedPosition.description} emptyText="暂无简介" />
+      {analysisData?.success ? <PositionAnalysisCard analysis={analysisData.data} /> : null}
     </Space>
   ) : null;
 
@@ -350,43 +357,24 @@ export default function GuokaoPositionList() {
           setSelectedRowKeys(keys as number[]);
         },
       } : undefined}
-      onTableChange={(_pagination, _filters, sorter) => {
-        if (!Array.isArray(sorter) && sorter.field) {
-          const field = String(sorter.field);
-          if (sorter.order) {
-            setSortBy(field);
-            setSortOrder(sorter.order === 'ascend' ? 'asc' : 'desc');
-          } else {
-            setSortBy(undefined);
-            setSortOrder(undefined);
-          }
-        }
-      }}
-      pagination={{
-        current: params.page,
-        pageSize: params.page_size,
-        total: currentData?.total || 0,
-        showTotal: (total) => `共 ${total} 个岗位`,
-        showSizeChanger: true,
-        pageSizeOptions: ['20', '50', '100'],
-        onChange: (page, pageSize) => setParams(p => ({ ...p, page, page_size: pageSize })),
-      }}
+      onTableChange={handleTableChange}
+      pagination={buildPagination(currentData?.total || 0)}
       tableScroll={{ x: 1200 }}
       detailTitle={selectedPosition?.title || '岗位详情'}
       detailOpen={detailOpen}
-      onDetailClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
+      onDetailClose={closePositionDetail}
       detailDrawerSize={520}
       detailContent={detailContent}
       selectedPositionIds={selectedRowKeys}
       compareOpen={compareOpen}
-      onCloseCompare={() => setCompareOpen(false)}
-      onOpenCompare={() => setCompareOpen(true)}
-      onClearSelected={() => setSelectedRowKeys([])}
+      onCloseCompare={closeCompare}
+      onOpenCompare={openCompare}
+      onClearSelected={clearSelectedRowKeys}
       onGenerateReport={handleGenerateReport}
       reportLoading={reportLoading}
       columnSettingOpen={columnSettingOpen}
       onSaveColumnSetting={saveColumnConfig}
-      onCloseColumnSetting={() => setColumnSettingOpen(false)}
+      onCloseColumnSetting={closeColumnSetting}
       allColumns={allColumns}
       visibleColumns={visibleColumns}
       onVisibleColumnsChange={setVisibleColumns}
