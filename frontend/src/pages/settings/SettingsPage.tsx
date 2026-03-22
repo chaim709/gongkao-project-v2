@@ -1,23 +1,48 @@
 import {
-  Card, Form, Input, InputNumber, Switch, Button, message, Tabs,
+  Card, Form, InputNumber, Button, message, Tabs,
   Descriptions, Tag, Space, Divider,
 } from 'antd';
-import { SaveOutlined, InfoCircleOutlined, ToolOutlined } from '@ant-design/icons';
+import { SaveOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { studentApi } from '../../api/students';
+import { settingsApi } from '../../api/settings';
+import type { ShiyeTierThresholdSettings } from '../../types/settings';
 
 export default function SettingsPage() {
-  const [form] = Form.useForm();
+  const [tierForm] = Form.useForm<ShiyeTierThresholdSettings>();
+  const [savingTierThresholds, setSavingTierThresholds] = useState(false);
 
   const { data: lifecycleStats } = useQuery({
     queryKey: ['lifecycle-stats'],
     queryFn: () => studentApi.getLifecycleStats(),
   });
 
-  const handleSave = () => {
-    form.validateFields().then(() => {
-      message.success('设置已保存（本地）');
-    });
+  const {
+    data: shiyeTierThresholds,
+    refetch: refetchShiyeTierThresholds,
+    isLoading: shiyeTierThresholdLoading,
+  } = useQuery({
+    queryKey: ['shiye-tier-thresholds'],
+    queryFn: () => settingsApi.getShiyeTierThresholds(),
+  });
+
+  useEffect(() => {
+    if (shiyeTierThresholds) {
+      tierForm.setFieldsValue(shiyeTierThresholds);
+    }
+  }, [shiyeTierThresholds, tierForm]);
+
+  const handleSaveShiyeTierThresholds = async () => {
+    const values = await tierForm.validateFields();
+    setSavingTierThresholds(true);
+    try {
+      await settingsApi.updateShiyeTierThresholds(values);
+      message.success('事业编分层阈值已保存');
+      await refetchShiyeTierThresholds();
+    } finally {
+      setSavingTierThresholds(false);
+    }
   };
 
   const statusLabels: Record<string, string> = {
@@ -95,30 +120,71 @@ export default function SettingsPage() {
     },
     {
       key: 'params',
-      label: <><ToolOutlined /> 参数配置</>,
+      label: <><SaveOutlined /> 参数配置</>,
+      forceRender: true,
       children: (
-        <Form form={form} layout="vertical" style={{ maxWidth: 600 }}>
-          <Form.Item label="跟进提醒天数" name="follow_up_days" initialValue={7}>
-            <InputNumber min={1} max={30} addonAfter="天" style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item label="每页默认显示条数" name="page_size" initialValue={20}>
-            <InputNumber min={10} max={100} addonAfter="条" style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item label="默认密码" name="default_password" initialValue="123456">
-            <Input.Password />
-          </Form.Item>
-          <Form.Item label="机构名称" name="org_name" initialValue="公考培训机构">
-            <Input />
-          </Form.Item>
-          <Form.Item label="启用 AI 智能导入" name="ai_enabled" valuePropName="checked" initialValue={true}>
-            <Switch checkedChildren="开" unCheckedChildren="关" />
-          </Form.Item>
-          <Form.Item>
-            <Button type="primary" icon={<SaveOutlined />} onClick={handleSave}>
-              保存设置
-            </Button>
-          </Form.Item>
-        </Form>
+        <div>
+          <Card
+            title="事业编分层阈值"
+            size="small"
+            loading={shiyeTierThresholdLoading}
+            extra={(
+              <Button
+                type="primary"
+                icon={<SaveOutlined />}
+                loading={savingTierThresholds}
+                onClick={handleSaveShiyeTierThresholds}
+              >
+                保存阈值
+              </Button>
+            )}
+          >
+            <Form form={tierForm} layout="vertical" style={{ maxWidth: 600 }}>
+              <Form.Item
+                label="竞争比中位分位值"
+                name="competition_low_percentile"
+                tooltip="命中该分位值以上时，按中位竞争强度处理"
+              >
+                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                label="竞争比高位分位值"
+                name="competition_high_percentile"
+                tooltip="命中该分位值以上时，按高竞争处理"
+              >
+                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                label="分数线中位分位值"
+                name="score_low_percentile"
+                tooltip="命中该分位值以上时，按中位分数线处理"
+              >
+                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                label="分数线高位分位值"
+                name="score_high_percentile"
+                tooltip="命中该分位值以上时，按高分线处理"
+              >
+                <InputNumber min={0} max={1} step={0.01} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                label="稳妥分界线"
+                name="stable_min_score"
+                tooltip="综合难度分达到该值后进入稳妥层"
+              >
+                <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} />
+              </Form.Item>
+              <Form.Item
+                label="冲刺分界线"
+                name="sprint_min_score"
+                tooltip="综合难度分达到该值后进入冲刺层"
+              >
+                <InputNumber min={0} max={100} step={1} style={{ width: '100%' }} />
+              </Form.Item>
+            </Form>
+          </Card>
+        </div>
       ),
     },
   ];

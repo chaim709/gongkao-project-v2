@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.staticfiles import StaticFiles
 from app.config import settings
-from app.routes import auth, students, supervision_logs, courses, homework, checkins, upload, analytics, positions, audit_logs, weaknesses, study_plans, course_recordings, mistakes, questions, packages, attendances, exams, finance, export, users, notifications, calendar, recycle_bin, recruitment_info
+from app.routes import auth, students, supervision_logs, courses, homework, checkins, upload, analytics, positions, audit_logs, weaknesses, study_plans, course_recordings, mistakes, questions, packages, attendances, exams, finance, export, users, notifications, calendar, recycle_bin, recruitment_info, settings as system_settings
 from app.exceptions.business import BusinessError
 from app.middleware.error_handler import business_error_handler, validation_error_handler, unhandled_error_handler
 from app.middleware.request_logging import RequestLoggingMiddleware
@@ -89,6 +89,7 @@ app.include_router(notifications.router)
 app.include_router(calendar.router)
 app.include_router(recycle_bin.router)
 app.include_router(recruitment_info.router)
+app.include_router(system_settings.router)
 
 # 静态文件服务（上传文件）
 upload_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "uploads")
