@@ -584,3 +584,94 @@ class TestShiyeSelectionService:
         assert result["risk_tags"] == ["高竞争"]
         assert result["recommendation_tiers"] == ["冲刺", "稳妥", "保底"]
         assert result["city_locations"]["南京市"] == ["玄武区", "鼓楼区"]
+
+    @pytest.mark.asyncio
+    async def test_get_filter_options_infers_suqian_county_locations(self, monkeypatch):
+        positions = [
+            build_position(
+                id=1,
+                city="宿迁市",
+                location="宿迁",
+                supervising_dept="泗洪县交通运输局",
+                department="泗洪县交通运输综合行政执法大队",
+            ),
+            build_position(
+                id=2,
+                city="宿迁市",
+                location="宿迁",
+                supervising_dept="宿迁市生态环境局",
+                department="宿迁市宿豫环境应急与信息中心",
+            ),
+            build_position(
+                id=3,
+                city="宿迁市",
+                location="宿城区",
+                supervising_dept="宿城区农业农村局",
+                department="陈集畜牧兽医站",
+            ),
+            build_position(
+                id=4,
+                city="宿迁市",
+                location="宿迁",
+                supervising_dept="宿迁市生态环境局",
+                department="宿迁市沭阳环境监测站",
+            ),
+        ]
+
+        monkeypatch.setattr(
+            RiskRules,
+            "evaluate",
+            staticmethod(lambda **_kwargs: RiskEvaluationResult()),
+        )
+
+        result = await ShiyeSelectionService.get_filter_options(
+            db=FakeDB(positions),
+            year=2025,
+        )
+
+        assert result["city_locations"]["宿迁市"] == [
+            "宿城区",
+            "泗阳县",
+            "泗洪县",
+            "沭阳县",
+            "宿豫",
+        ]
+        assert "泗阳县" in result["locations"]
+
+    @pytest.mark.asyncio
+    async def test_search_filters_by_inferred_suqian_location(self, monkeypatch):
+        patch_search_dependencies(monkeypatch)
+
+        positions = [
+            build_position(
+                id=1,
+                city="宿迁市",
+                location="宿迁",
+                title="宿豫岗位",
+                supervising_dept="宿迁市生态环境局",
+                department="宿迁市宿豫环境应急与信息中心",
+            ),
+            build_position(
+                id=2,
+                city="宿迁市",
+                location="宿迁",
+                title="泗洪岗位",
+                supervising_dept="泗洪县交通运输局",
+                department="泗洪县邮政业安全发展中心",
+            ),
+        ]
+
+        result = await ShiyeSelectionService.search(
+            db=FakeDB(positions),
+            year=2025,
+            education="本科",
+            major="财务管理",
+            city="宿迁市",
+            location="宿豫",
+            page=1,
+            page_size=10,
+        )
+
+        assert result["total"] == 1
+        assert result["items"][0]["position"].title == "宿豫岗位"
+        assert result["items"][0]["selection_location"] == "宿豫"

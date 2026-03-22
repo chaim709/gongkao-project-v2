@@ -83,6 +83,40 @@ async def get_filter_options(
         if loc not in city_locations[c]:
             city_locations[c].append(loc)
 
+    if exam_type == '事业单位':
+        from app.services.selection.shiye_selection_service import ShiyeSelectionService
+
+        shiye_positions = (
+            await db.execute(select(Position).where(base))
+        ).scalars().all()
+        derived_city_locations: dict[str, list[str]] = {}
+        for position in shiye_positions:
+            derived_location = ShiyeSelectionService._derive_selection_location(position)
+            if not position.city or not derived_location:
+                continue
+            derived_city_locations.setdefault(position.city, [])
+            if derived_location not in derived_city_locations[position.city]:
+                derived_city_locations[position.city].append(derived_location)
+        if any(position.city == ShiyeSelectionService.SUQIAN_CITY for position in shiye_positions):
+            derived_city_locations.setdefault(
+                ShiyeSelectionService.SUQIAN_CITY,
+                ShiyeSelectionService._complete_locations_for_city(
+                    ShiyeSelectionService.SUQIAN_CITY,
+                    [],
+                ),
+            )
+        city_locations = {
+            city: ShiyeSelectionService._complete_locations_for_city(city, values)
+            for city, values in derived_city_locations.items()
+        }
+        locations = sorted(
+            {
+                location
+                for city_values in city_locations.values()
+                for location in city_values
+            }
+        )
+
     result = {
         "years": list(years),
         "exam_types": list(exam_types),
@@ -261,6 +295,7 @@ async def search_shiye_positions(
         serialized = PositionResponse.model_validate(item["position"]).model_dump()
         serialized.update(
             {
+                "location": item.get("selection_location") or serialized.get("location"),
                 "funding_source": item["funding_source"],
                 "recruitment_target": item["recruitment_target"],
                 "eligibility_status": item["eligibility_status"],
@@ -327,8 +362,11 @@ async def list_positions(
     db: AsyncSession = Depends(get_db),
 ):
     """获取岗位列表，支持多条件筛选"""
+    from app.services.selection.shiye_selection_service import ShiyeSelectionService
+
     query = select(Position)
     count_query = select(func.count(Position.id))
+    use_shiye_derived_location = exam_type == "事业单位"
 
     if year:
         query = query.where(Position.year == year)
@@ -357,8 +395,11 @@ async def list_positions(
         query = query.where(Position.difficulty_level == difficulty_level)
         count_query = count_query.where(Position.difficulty_level == difficulty_level)
     if location:
-        query = query.where(Position.location == location)
-        count_query = count_query.where(Position.location == location)
+        if use_shiye_derived_location:
+            pass
+        else:
+            query = query.where(Position.location == location)
+            count_query = count_query.where(Position.location == location)
     if province:
         query = query.where(Position.province == province)
         count_query = count_query.where(Position.province == province)
@@ -371,8 +412,6 @@ async def list_positions(
     if recruitment_target:
         query = query.where(Position.recruitment_target == recruitment_target)
         count_query = count_query.where(Position.recruitment_target == recruitment_target)
-
-    total = (await db.execute(count_query)).scalar()
 
     # 排序
     sort_columns = {
@@ -387,12 +426,33 @@ async def list_positions(
     else:
         query = query.order_by(Position.id)
 
-    items = (await db.execute(
-        query.offset((page - 1) * page_size).limit(page_size)
-    )).scalars().all()
+    offset = (page - 1) * page_size
+    if use_shiye_derived_location and location:
+        items = (await db.execute(query)).scalars().all()
+        items = [
+            item
+            for item in items
+            if ShiyeSelectionService._derive_selection_location(item) == location
+        ]
+        total = len(items)
+        items = items[offset:offset + page_size]
+    else:
+        total = (await db.execute(count_query)).scalar()
+        items = (await db.execute(
+            query.offset(offset).limit(page_size)
+        )).scalars().all()
+
+    serialized_items = []
+    for item in items:
+        serialized = PositionResponse.model_validate(item)
+        if use_shiye_derived_location:
+            derived_location = ShiyeSelectionService._derive_selection_location(item)
+            if derived_location:
+                serialized = serialized.model_copy(update={"location": derived_location})
+        serialized_items.append(serialized)
 
     return PositionListResponse(
-        items=[PositionResponse.model_validate(p) for p in items],
+        items=serialized_items,
         total=total, page=page, page_size=page_size,
     )
 

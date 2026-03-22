@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import re
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -30,6 +31,16 @@ from app.services.system_setting_service import SystemSettingService
 
 class ShiyeSelectionService:
     """Search service for Jiangsu事业编选岗."""
+
+    SUQIAN_CITY = "宿迁市"
+    SUQIAN_LOCATION_ORDER = ("宿城区", "泗阳县", "泗洪县", "沭阳县", "宿豫")
+    SUQIAN_LOCATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"宿城区"), "宿城区"),
+        (re.compile(r"泗阳县|泗阳"), "泗阳县"),
+        (re.compile(r"泗洪县|泗洪"), "泗洪县"),
+        (re.compile(r"沭阳县|沭阳"), "沭阳县"),
+        (re.compile(r"宿豫区|宿豫"), "宿豫"),
+    )
 
     MATCH_SOURCE_LABELS = {
         "exact_major_match": "专业精确匹配",
@@ -80,8 +91,6 @@ class ShiyeSelectionService:
         ]
         if city:
             base_filters.append(Position.city == city)
-        if location:
-            base_filters.append(Position.location == location)
 
         result = await db.execute(select(Position).where(and_(*base_filters)))
         positions = result.scalars().all()
@@ -118,6 +127,7 @@ class ShiyeSelectionService:
         for position in positions:
             normalized_position = {
                 "position": position,
+                "selection_location": cls._derive_selection_location(position),
                 "post_nature": normalize_post_nature(position.exam_category),
                 "normalized_funding_source": normalize_funding_source(
                     position.funding_source
@@ -142,6 +152,8 @@ class ShiyeSelectionService:
                 and normalized_position["normalized_recruitment_target"]
                 not in normalized_recruitment_targets
             ):
+                continue
+            if location and normalized_position["selection_location"] != location:
                 continue
             filtered_positions.append(normalized_position)
 
@@ -212,6 +224,7 @@ class ShiyeSelectionService:
                         manual_review_flags=eligibility["manual_review_flags"],
                     ),
                     "post_nature": post_nature,
+                    "selection_location": filtered_position["selection_location"],
                     "funding_source": normalized_funding_source,
                     "recruitment_target": normalized_recruitment_target,
                     "risk_tags": list(risk_result.risk_tags),
@@ -287,18 +300,37 @@ class ShiyeSelectionService:
         positions = result.scalars().all()
 
         cities = sorted({position.city for position in positions if position.city})
-        locations = sorted({position.location for position in positions if position.location})
+        locations = sorted(
+            {
+                selection_location
+                for position in positions
+                if (selection_location := cls._derive_selection_location(position))
+            }
+        )
         city_locations: dict[str, list[str]] = {}
         for position in positions:
-            if not position.city or not position.location:
+            selection_location = cls._derive_selection_location(position)
+            if not position.city or not selection_location:
                 continue
             city_locations.setdefault(position.city, [])
-            if position.location not in city_locations[position.city]:
-                city_locations[position.city].append(position.location)
+            if selection_location not in city_locations[position.city]:
+                city_locations[position.city].append(selection_location)
         city_locations = {
-            city: sorted(values)
+            city: cls._complete_locations_for_city(city, values)
             for city, values in city_locations.items()
         }
+        if any(position.city == cls.SUQIAN_CITY for position in positions):
+            city_locations.setdefault(
+                cls.SUQIAN_CITY,
+                cls._complete_locations_for_city(cls.SUQIAN_CITY, []),
+            )
+        locations = sorted(
+            {
+                location
+                for city_values in city_locations.values()
+                for location in city_values
+            }
+        )
         funding_sources = order_values(
             (
                 normalize_funding_source(position.funding_source)
@@ -349,6 +381,63 @@ class ShiyeSelectionService:
             "recommendation_tiers": list(RECOMMENDATION_TIER_ORDER),
             "city_locations": city_locations,
         }
+
+    @classmethod
+    def _derive_selection_location(cls, position: Position) -> str | None:
+        raw_location = (position.location or "").strip() or None
+        if position.city != cls.SUQIAN_CITY:
+            return raw_location
+
+        inferred = cls._infer_suqian_location(position)
+        if inferred:
+            return inferred
+        if raw_location in {"宿迁", "宿迁市"}:
+            return None
+        return raw_location
+
+    @classmethod
+    def _infer_suqian_location(cls, position: Position) -> str | None:
+        texts = (
+            position.location,
+            position.supervising_dept,
+            position.department,
+            position.title,
+            position.description,
+            position.remark,
+        )
+        for text in texts:
+            normalized = str(text or "").replace(" ", "")
+            for pattern, label in cls.SUQIAN_LOCATION_PATTERNS:
+                if pattern.search(normalized):
+                    return label
+        return None
+
+    @classmethod
+    def _order_locations_for_city(
+        cls,
+        city: str,
+        values: list[str],
+    ) -> list[str]:
+        unique_values = {value for value in values if value}
+        if city != cls.SUQIAN_CITY:
+            return sorted(unique_values)
+
+        ordered = [
+            label for label in cls.SUQIAN_LOCATION_ORDER if label in unique_values
+        ]
+        remaining = sorted(unique_values - set(ordered))
+        return ordered + remaining
+
+    @classmethod
+    def _complete_locations_for_city(
+        cls,
+        city: str,
+        values: list[str],
+    ) -> list[str]:
+        unique_values = {value for value in values if value}
+        if city == cls.SUQIAN_CITY:
+            unique_values.update(cls.SUQIAN_LOCATION_ORDER)
+        return cls._order_locations_for_city(city, list(unique_values))
 
     @classmethod
     def _derive_eligibility(cls, match_result: dict[str, Any]) -> dict[str, Any]:
