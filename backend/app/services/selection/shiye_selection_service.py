@@ -33,13 +33,19 @@ class ShiyeSelectionService:
     """Search service for Jiangsu事业编选岗."""
 
     SUQIAN_CITY = "宿迁市"
-    SUQIAN_LOCATION_ORDER = ("宿城区", "泗阳县", "泗洪县", "沭阳县", "宿豫")
+    SUQIAN_CORE_LOCATION_ORDER = ("宿城区", "泗阳县", "泗洪县", "沭阳县", "宿豫")
+    SUQIAN_OPTIONAL_LOCATION_ORDER = ("市直", "经开区", "洋河新区", "湖滨新区")
     SUQIAN_LOCATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
         (re.compile(r"宿城区"), "宿城区"),
         (re.compile(r"泗阳县|泗阳"), "泗阳县"),
         (re.compile(r"泗洪县|泗洪"), "泗洪县"),
         (re.compile(r"沭阳县|沭阳"), "沭阳县"),
         (re.compile(r"宿豫区|宿豫"), "宿豫"),
+    )
+    SUQIAN_SPECIAL_LOCATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+        (re.compile(r"经济技术开发区|经开区"), "经开区"),
+        (re.compile(r"洋河新区|洋河镇|洋河高级中学"), "洋河新区"),
+        (re.compile(r"湖滨新区|湖滨高级中学"), "湖滨新区"),
     )
 
     MATCH_SOURCE_LABELS = {
@@ -391,8 +397,11 @@ class ShiyeSelectionService:
         inferred = cls._infer_suqian_location(position)
         if inferred:
             return inferred
+        special_location = cls._infer_suqian_special_location(position)
+        if special_location:
+            return special_location
         if raw_location in {"宿迁", "宿迁市"}:
-            return None
+            return "市直"
         return raw_location
 
     @classmethod
@@ -413,6 +422,23 @@ class ShiyeSelectionService:
         return None
 
     @classmethod
+    def _infer_suqian_special_location(cls, position: Position) -> str | None:
+        texts = (
+            position.location,
+            position.supervising_dept,
+            position.department,
+            position.title,
+            position.description,
+            position.remark,
+        )
+        for text in texts:
+            normalized = str(text or "").replace(" ", "")
+            for pattern, label in cls.SUQIAN_SPECIAL_LOCATION_PATTERNS:
+                if pattern.search(normalized):
+                    return label
+        return None
+
+    @classmethod
     def _order_locations_for_city(
         cls,
         city: str,
@@ -422,8 +448,9 @@ class ShiyeSelectionService:
         if city != cls.SUQIAN_CITY:
             return sorted(unique_values)
 
+        ordered_labels = cls.SUQIAN_CORE_LOCATION_ORDER + cls.SUQIAN_OPTIONAL_LOCATION_ORDER
         ordered = [
-            label for label in cls.SUQIAN_LOCATION_ORDER if label in unique_values
+            label for label in ordered_labels if label in unique_values
         ]
         remaining = sorted(unique_values - set(ordered))
         return ordered + remaining
@@ -436,7 +463,7 @@ class ShiyeSelectionService:
     ) -> list[str]:
         unique_values = {value for value in values if value}
         if city == cls.SUQIAN_CITY:
-            unique_values.update(cls.SUQIAN_LOCATION_ORDER)
+            unique_values.update(cls.SUQIAN_CORE_LOCATION_ORDER)
         return cls._order_locations_for_city(city, list(unique_values))
 
     @classmethod

@@ -675,3 +675,54 @@ class TestShiyeSelectionService:
         assert result["total"] == 1
         assert result["items"][0]["position"].title == "宿豫岗位"
         assert result["items"][0]["selection_location"] == "宿豫"
+
+    def test_derive_selection_location_falls_back_to_city_level_and_special_zones(self):
+        city_level = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁市文化广电和旅游局",
+            department="宿迁市图书馆",
+        )
+        development_zone = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁经济技术开发区管理委员会",
+            department="宿迁经济技术开发区协助海关监管队",
+        )
+        yanghe = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁市洋河新区管委会（洋河镇）",
+            department="宿迁市洋河镇综合服务中心",
+        )
+        hubin = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁市教育局",
+            department="宿迁市湖滨高级中学",
+        )
+
+        assert ShiyeSelectionService._derive_selection_location(city_level) == "市直"
+        assert (
+            ShiyeSelectionService._derive_selection_location(development_zone)
+            == "经开区"
+        )
+        assert ShiyeSelectionService._derive_selection_location(yanghe) == "洋河新区"
+        assert ShiyeSelectionService._derive_selection_location(hubin) == "湖滨新区"
+
+    def test_derive_selection_location_keeps_city_level_for_non_county_keywords(self):
+        urban_river = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁市水利局",
+            department="宿迁市市区河道管理中心",
+        )
+        maling = build_position(
+            city="宿迁市",
+            location="宿迁",
+            supervising_dept="宿迁市教育局",
+            department="江苏省宿迁市马陵中学",
+        )
+
+        assert ShiyeSelectionService._derive_selection_location(urban_river) == "市直"
+        assert ShiyeSelectionService._derive_selection_location(maling) == "市直"
