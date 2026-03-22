@@ -140,9 +140,10 @@ export default function ShiyeSelectionPanel({
     >
       <Alert
         type="success"
-        showIcon={false}
+        showIcon
         style={{ marginBottom: 12 }}
-        message="按 学历+专业 先召回，再用 岗位性质 / 招聘对象 / 经费来源 / 风险避雷 收缩结果。"
+        message="先按 学历 + 具体专业 召回，再叠加 岗位性质 / 招聘对象 / 经费来源 / 风险避雷 收缩。"
+        description="专业名称会自动兼容所属专业大类；不选招聘对象和经费来源时，默认按不限处理。"
       />
 
       <Row gutter={8} style={{ marginBottom: 12 }}>

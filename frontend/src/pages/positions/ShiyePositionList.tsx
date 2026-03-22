@@ -16,21 +16,70 @@ import type { Position, MatchResult, MatchSummary } from '../../types/position';
 import type { ColumnsType } from 'antd/es/table';
 
 const DEFAULT_VISIBLE_COLUMNS = [
-  'title',
-  'department',
   'city',
-  'location',
+  'title',
   'match_source',
+  'eligibility_status',
   'recommendation_tier',
   'post_nature',
-  'risk_tags',
   'exam_category',
   'education',
+  'major',
   'recruitment_count',
   'apply_count',
   'competition_ratio',
-  'min_interview_score',
+  'risk_tags',
+  'remark',
 ];
+
+const COLUMN_STORAGE_KEY = 'shiye_position_columns_v2';
+
+const EXAM_CATEGORY_COLORS: Record<string, string> = {
+  管理类: 'blue',
+  工勤类: 'orange',
+  工勤技能类: 'orange',
+  法律类: 'green',
+  其他专技类: 'green',
+  专技类: 'green',
+  计算机类: 'cyan',
+  岗位专业知识: 'cyan',
+  学科专业知识: 'geekblue',
+};
+
+const FILTER_LABEL_OVERRIDES: Record<string, string> = {
+  待确认: '待确认（原表未规范）',
+};
+
+function formatEducationText(value?: string) {
+  if (!value) return '-';
+
+  const normalized = value.replace(/\s+/g, '');
+  if (normalized.includes('不限')) return '不限';
+  if (normalized.includes('博士')) return normalized.includes('以上') ? '博士及以上' : '博士';
+  if (normalized.includes('研究生') || normalized.includes('硕士')) {
+    return normalized.includes('以上') ? '研究生及以上' : '研究生';
+  }
+  if (normalized.includes('本科')) {
+    return normalized.includes('以上') ? '本科及以上' : '本科';
+  }
+  if (normalized.includes('大专') || normalized.includes('专科') || normalized.includes('高职')) {
+    return normalized.includes('以上') ? '大专及以上' : '大专';
+  }
+
+  return normalized;
+}
+
+function formatFilterLabel(value: string) {
+  return FILTER_LABEL_OVERRIDES[value] || value;
+}
+
+function buildSelectionFilterOptions(values: string[] | undefined, options?: {
+  excludeUnlimited?: boolean;
+}) {
+  return (values || [])
+    .filter((item) => !options?.excludeUnlimited || item !== '不限')
+    .map((item) => ({ value: item, label: formatFilterLabel(item) }));
+}
 
 export default function ShiyePositionList() {
   const [search, setSearch] = useState('');
@@ -56,33 +105,33 @@ export default function ShiyePositionList() {
   const [reportLoading, setReportLoading] = useState(false);
 
   const allColumns = [
-    { key: 'title', label: '岗位名称', width: 140 },
-    { key: 'department', label: '招聘单位', width: 180 },
-    { key: 'supervising_dept', label: '主管部门', width: 160 },
     { key: 'city', label: '地市', width: 80 },
-    { key: 'location', label: '区县', width: 90 },
-    { key: 'eligibility_status', label: '匹配状态', width: 110 },
+    { key: 'title', label: '岗位名称', width: 140 },
     { key: 'match_source', label: '匹配来源', width: 120 },
+    { key: 'eligibility_status', label: '匹配状态', width: 110 },
     { key: 'recommendation_tier', label: '推荐层级', width: 100 },
     { key: 'post_nature', label: '岗位性质', width: 100 },
-    { key: 'risk_tags', label: '风险标签', width: 180 },
     { key: 'exam_category', label: '笔试类别', width: 90 },
-    { key: 'position_level', label: '岗位等级', width: 100 },
-    { key: 'description', label: '岗位说明', width: 150 },
     { key: 'education', label: '学历', width: 110 },
-    { key: 'degree', label: '学位', width: 90 },
     { key: 'major', label: '专业要求', width: 150 },
     { key: 'recruitment_count', label: '招录', width: 60 },
-    { key: 'funding_source', label: '经费来源', width: 100 },
-    { key: 'recruitment_target', label: '招聘对象', width: 100 },
     { key: 'apply_count', label: '报名人数', width: 90 },
     { key: 'competition_ratio', label: '竞争比', width: 80 },
+    { key: 'risk_tags', label: '风险标签', width: 180 },
+    { key: 'remark', label: '备注', width: 150 },
+    { key: 'department', label: '招聘单位', width: 180 },
+    { key: 'location', label: '区县', width: 90 },
+    { key: 'supervising_dept', label: '主管部门', width: 160 },
+    { key: 'funding_source', label: '经费来源', width: 100 },
+    { key: 'recruitment_target', label: '招聘对象', width: 100 },
     { key: 'min_interview_score', label: '进面最低分', width: 100 },
     { key: 'max_interview_score', label: '进面最高分', width: 100 },
     { key: 'exam_ratio', label: '开考比例', width: 90 },
+    { key: 'position_level', label: '岗位等级', width: 100 },
+    { key: 'description', label: '岗位说明', width: 150 },
+    { key: 'degree', label: '学位', width: 90 },
     { key: 'exam_weight_ratio', label: '笔面试占比', width: 130 },
     { key: 'interview_ratio', label: '面试比例', width: 100 },
-    { key: 'remark', label: '备注', width: 150 },
   ];
 
   const {
@@ -109,7 +158,7 @@ export default function ShiyePositionList() {
     clearSelectedRowKeys,
     buildPagination,
   } = usePositionPageState<Position>({
-    columnStorageKey: 'shiye_position_columns',
+    columnStorageKey: COLUMN_STORAGE_KEY,
     defaultVisibleColumns: DEFAULT_VISIBLE_COLUMNS,
   });
 
@@ -280,11 +329,31 @@ export default function ShiyePositionList() {
     exam_category: {
       title: '笔试类别', dataIndex: 'exam_category', width: 90,
       render: (v: string) => {
-        const colors: Record<string, string> = { '管理类': 'blue', '技术类': 'green', '工勤技能类': 'orange' };
-        return v ? <Tag color={colors[v] || 'default'}>{v}</Tag> : '-';
+        if (!v) return '-';
+        let color = EXAM_CATEGORY_COLORS[v];
+        if (!color) {
+          if (v.includes('管理')) color = 'blue';
+          else if (v.includes('工勤')) color = 'orange';
+          else if (v.includes('法律') || v.includes('专技') || v.includes('经济') || v.includes('计算机')) color = 'green';
+          else color = 'default';
+        }
+        return <Tag color={color}>{v}</Tag>;
       },
     },
-    education: { title: '学历', dataIndex: 'education', width: 110, ellipsis: true },
+    education: {
+      title: '学历',
+      dataIndex: 'education',
+      width: 110,
+      ellipsis: true,
+      render: (v: string) => {
+        const label = formatEducationText(v);
+        return (
+          <span title={v || label}>
+            {label}
+          </span>
+        );
+      },
+    },
     major: { title: '专业要求', dataIndex: 'major', width: 150, ellipsis: true },
     recruitment_count: { title: '招录', dataIndex: 'recruitment_count', width: 60, align: 'center' },
     funding_source: {
@@ -292,7 +361,7 @@ export default function ShiyePositionList() {
       render: (v: string, record: Position) => {
         const colors: Record<string, string> = { '全额拨款': 'green', '差额拨款': 'orange', '自收自支': 'red' };
         const label = record.normalized_funding_source || v;
-        return label ? <Tag color={colors[label] || 'default'}>{label}</Tag> : '-';
+        return label ? <Tag color={colors[label] || 'default'}>{formatFilterLabel(label)}</Tag> : '-';
       },
     },
     recruitment_target: {
@@ -300,7 +369,7 @@ export default function ShiyePositionList() {
       dataIndex: 'recruitment_target',
       width: 100,
       render: (v: string, record: Position) =>
-        record.normalized_recruitment_target || v || '-',
+        formatFilterLabel(record.normalized_recruitment_target || v || '-'),
     },
     apply_count: {
       title: '报名人数', dataIndex: 'apply_count', width: 90, align: 'center',
@@ -383,32 +452,40 @@ export default function ShiyePositionList() {
       {selectionMode && (
         <Select
           mode="multiple"
-          placeholder="岗位性质"
+          placeholder="岗位性质偏好"
           value={postNatures}
           allowClear
           style={{ width: 200 }}
           onChange={(v) => { setPostNatures(v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗']).map((nature: string) => ({ value: nature, label: nature }))}
+          options={buildSelectionFilterOptions(
+            shiyeFilterOptions?.post_natures || ['管理岗', '专技岗', '工勤岗'],
+          )}
         />
       )}
       {selectionMode && (
         <Select
-          placeholder="招聘对象"
+          placeholder="招聘对象限制"
           value={recruitmentTarget}
           allowClear
-          style={{ width: 150 }}
+          style={{ width: 160 }}
           onChange={(v) => { setRecruitmentTarget(v === '不限' ? undefined : v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.recruitment_targets || []).map((item: string) => ({ value: item, label: item }))}
+          options={buildSelectionFilterOptions(
+            shiyeFilterOptions?.recruitment_targets,
+            { excludeUnlimited: true },
+          )}
         />
       )}
       {selectionMode && (
         <Select
-          placeholder="经费来源"
+          placeholder="经费来源限制"
           value={fundingSource}
           allowClear
-          style={{ width: 150 }}
+          style={{ width: 170 }}
           onChange={(v) => { setFundingSource(v === '不限' ? undefined : v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.funding_sources || []).map((item: string) => ({ value: item, label: item }))}
+          options={buildSelectionFilterOptions(
+            shiyeFilterOptions?.funding_sources,
+            { excludeUnlimited: true },
+          )}
         />
       )}
       {selectionMode && (
@@ -419,15 +496,15 @@ export default function ShiyePositionList() {
           allowClear
           style={{ width: 220 }}
           onChange={(v) => { setExcludedRiskTags(v); resetToFirstPage(); }}
-          options={(shiyeFilterOptions?.risk_tags || []).map((item: string) => ({ value: item, label: item }))}
+          options={buildSelectionFilterOptions(shiyeFilterOptions?.risk_tags)}
         />
       )}
       {selectionMode && (
         <Select
-          placeholder="推荐层级"
+          placeholder="结果层级筛选"
           value={recommendationTier}
           allowClear
-          style={{ width: 130 }}
+          style={{ width: 150 }}
           onChange={(v) => { setRecommendationTier(v); resetToFirstPage(); }}
           options={['冲刺', '稳妥', '保底'].map((tier) => ({ value: tier, label: tier }))}
         />
