@@ -411,7 +411,7 @@ export default function PositionList() {
         title={selectedPosition?.title || selectedPosition?.department || '岗位详情'}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
-        width={480}
+        size={480}
       >
         {selectedPosition && (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -426,6 +426,7 @@ export default function PositionList() {
               <p><b>学历要求：</b>{selectedPosition.education || '-'}</p>
               <p><b>专业要求：</b>{selectedPosition.major || '不限'}</p>
               <p><b>其他要求：</b>{selectedPosition.other_requirements || '无'}</p>
+              <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
             </Card>
             <Card size="small" title="竞争数据">
               <Row gutter={16}>

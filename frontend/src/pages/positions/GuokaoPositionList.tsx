@@ -360,7 +360,7 @@ export default function GuokaoPositionList() {
         title={selectedPosition?.title || '岗位详情'}
         open={detailOpen}
         onClose={() => { setDetailOpen(false); setSelectedPosition(null); }}
-        width={520}
+        size={520}
       >
         {selectedPosition && (
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -383,7 +383,8 @@ export default function GuokaoPositionList() {
               <p><b>政治面貌：</b>{selectedPosition.political_status || '-'}</p>
               <p><b>基层工作年限：</b>{selectedPosition.work_experience || '-'}</p>
               <p><b>服务基层项目：</b>{selectedPosition.grassroots_project || '-'}</p>
-              <p><b>备注：</b>{selectedPosition.other_requirements || '无'}</p>
+              <p><b>其他要求：</b>{selectedPosition.other_requirements || '无'}</p>
+              <p><b>备注：</b>{selectedPosition.remark || '无'}</p>
             </Card>
             <Card size="small" title="职位简介">
               <p>{selectedPosition.description || '暂无简介'}</p>

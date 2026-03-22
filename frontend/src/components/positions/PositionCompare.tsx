@@ -150,7 +150,7 @@ export default function PositionCompare({ open, onClose, positionIds }: Props) {
       title={`岗位对比 (${positionIds.length}个)`}
       open={open}
       onClose={onClose}
-      width={Math.min(180 * items.length + 160, window.innerWidth * 0.9)}
+      size={Math.min(180 * items.length + 160, window.innerWidth * 0.9)}
     >
       {isLoading ? (
         <div style={{ textAlign: 'center', padding: 40 }}><Spin /></div>
