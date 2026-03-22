@@ -1,4 +1,4 @@
-import { useEffect, lazy, Suspense } from 'react';
+import { useEffect, lazy, Suspense, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ConfigProvider, Spin } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
@@ -78,6 +78,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
 function App() {
   const fetchUser = useAuthStore((state) => state.fetchUser);
   const themeMode = useThemeStore((state) => state.mode);
+  const antTheme = useMemo(() => getAntTheme(themeMode), [themeMode]);
 
   useEffect(() => {
     fetchUser();
@@ -88,9 +89,20 @@ function App() {
     document.documentElement.setAttribute('data-theme', themeMode);
   }, [themeMode]);
 
+  // Ensure static message/modal/notification can consume current theme context.
+  useEffect(() => {
+    ConfigProvider.config({
+      holderRender: (children) => (
+        <ConfigProvider locale={zhCN} theme={antTheme}>
+          {children}
+        </ConfigProvider>
+      ),
+    });
+  }, [antTheme]);
+
   return (
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider locale={zhCN} theme={getAntTheme(themeMode)}>
+      <ConfigProvider locale={zhCN} theme={antTheme}>
         <ErrorBoundary>
         <BrowserRouter>
           <Routes>
