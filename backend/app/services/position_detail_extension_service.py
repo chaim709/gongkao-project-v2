@@ -19,8 +19,12 @@ class PositionDetailExtensionService:
     """Build reusable history_items and related_items blocks for detail pages."""
 
     DEFAULT_RELATED_LIMIT = 6
+    SAME_DEPARTMENT_KEY = "same_department"
+    SAME_CITY_TYPE_KEY = "same_city_same_type"
+    LOWER_RISK_KEY = "lower_risk_alternative"
 
     SAME_CITY_SCORE = 40
+    SAME_DEPARTMENT_SCORE = 36
     SAME_POST_NATURE_SCORE = 24
     SAME_EXAM_CATEGORY_SCORE = 18
     SAME_LOCATION_SCORE = 12
@@ -29,6 +33,7 @@ class PositionDetailExtensionService:
     SAME_MAJOR_SCORE = 16
     CLOSE_MAJOR_SCORE = 10
     UNLIMITED_MAJOR_SCORE = 6
+    LOWER_RISK_MIN_SIMILARITY = 50
 
     _MAJOR_SPLIT_RE = re.compile(r"[、,，/；;（）()\s]+")
 
@@ -46,14 +51,22 @@ class PositionDetailExtensionService:
             return None
 
         history_items = await cls._get_history_items(db, position)
-        related_items = await cls._get_related_items(
+        related_candidates = await cls._get_related_items(
             db,
             position=position,
             limit=related_limit,
         )
+        related_groups = cls._build_related_groups(
+            position=position,
+            items=related_candidates,
+            limit=related_limit,
+        )
         return {
             "history_items": history_items,
-            "related_items": related_items,
+            "related_items": [
+                cls._serialize_related_item(item) for item in related_candidates[: max(related_limit, 0)]
+            ],
+            "related_groups": related_groups,
         }
 
     @classmethod
@@ -123,8 +136,20 @@ class PositionDetailExtensionService:
         score_thresholds = RiskRules.build_score_thresholds(same_year_positions)
         competition_thresholds = RiskRules.build_competition_thresholds(same_year_positions)
         target_city = cls._normalize_text(position.city)
+        target_department = cls._normalize_text(position.department)
         target_post_nature = normalize_post_nature(position.exam_category)
         target_location = ShiyeSelectionService._derive_selection_location(position)
+        anchor_risk_result = RiskRules.evaluate(
+            competition_ratio=position.competition_ratio,
+            apply_count=position.apply_count or position.successful_applicants,
+            min_interview_score=position.min_interview_score,
+            year=position.year,
+            exam_category=position.exam_category,
+            description=position.description,
+            remark=position.remark,
+            score_thresholds=score_thresholds,
+            competition_thresholds=competition_thresholds,
+        )
 
         related_items = []
         for candidate in candidates:
@@ -155,8 +180,20 @@ class PositionDetailExtensionService:
                     "risk_tags": list(risk_result.risk_tags),
                     "risk_reasons": list(risk_result.risk_reasons),
                     "risk_score": risk_result.risk_score,
+                    "same_department": bool(target_department)
+                    and cls._normalize_text(candidate.department) == target_department,
                     "same_city": bool(target_city)
                     and cls._normalize_text(candidate.city) == target_city,
+                    "same_exam_category": cls._normalize_text(candidate.exam_category)
+                    == cls._normalize_text(position.exam_category),
+                    "same_post_nature": normalize_post_nature(candidate.exam_category)
+                    == target_post_nature,
+                    "lower_risk": cls._is_lower_risk_alternative(
+                        anchor=position,
+                        anchor_risk_score=anchor_risk_result.risk_score,
+                        candidate=candidate,
+                        candidate_risk_score=risk_result.risk_score,
+                    ),
                 }
             )
 
@@ -172,8 +209,65 @@ class PositionDetailExtensionService:
             )
         )
 
-        limited_items = related_items[: max(limit, 0)]
-        return [cls._serialize_related_item(item) for item in limited_items]
+        return related_items[: max(limit * 3, limit, 0)]
+
+    @classmethod
+    def _build_related_groups(
+        cls,
+        *,
+        position: Position,
+        items: list[dict[str, Any]],
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        remaining = list(items)
+
+        group_builders = (
+            (
+                cls.SAME_DEPARTMENT_KEY,
+                "同单位",
+                "优先看同一招聘单位下的相近岗位。",
+                lambda item: item.get("same_department"),
+            ),
+            (
+                cls.SAME_CITY_TYPE_KEY,
+                "同城同类",
+                "同地市且岗位性质接近，适合横向比较。",
+                lambda item: item.get("same_city")
+                and (item.get("same_post_nature") or item.get("same_exam_category")),
+            ),
+            (
+                cls.LOWER_RISK_KEY,
+                "低风险替代",
+                "相似度足够但竞争或分数压力更低的替代岗位。",
+                lambda item: item.get("lower_risk")
+                and item.get("similarity_score", 0) >= cls.LOWER_RISK_MIN_SIMILARITY
+                and (
+                    item.get("same_city")
+                    or item.get("same_post_nature")
+                    or item.get("same_exam_category")
+                ),
+            ),
+        )
+
+        groups: list[dict[str, Any]] = []
+        for key, title, description, predicate in group_builders:
+            selected: list[dict[str, Any]] = []
+            next_remaining: list[dict[str, Any]] = []
+            for item in remaining:
+                if predicate(item) and len(selected) < limit:
+                    selected.append(item)
+                else:
+                    next_remaining.append(item)
+            remaining = next_remaining
+            groups.append(
+                {
+                    "key": key,
+                    "title": title,
+                    "description": description,
+                    "items": [cls._serialize_related_item(item) for item in selected],
+                }
+            )
+        return groups
 
     @classmethod
     def _calculate_similarity(
@@ -190,6 +284,10 @@ class PositionDetailExtensionService:
         if cls._normalize_text(position.city) and cls._normalize_text(position.city) == cls._normalize_text(candidate.city):
             score += cls.SAME_CITY_SCORE
             reasons.append(f"同城岗位：{candidate.city}")
+
+        if cls._normalize_text(position.department) and cls._normalize_text(position.department) == cls._normalize_text(candidate.department):
+            score += cls.SAME_DEPARTMENT_SCORE
+            reasons.append(f"同单位：{candidate.department}")
 
         candidate_post_nature = normalize_post_nature(candidate.exam_category)
         if target_post_nature and candidate_post_nature == target_post_nature:
@@ -311,6 +409,30 @@ class PositionDetailExtensionService:
             }
         )
         return position_payload
+
+    @classmethod
+    def _is_lower_risk_alternative(
+        cls,
+        *,
+        anchor: Position,
+        anchor_risk_score: int,
+        candidate: Position,
+        candidate_risk_score: int,
+    ) -> bool:
+        if candidate_risk_score < anchor_risk_score:
+            return True
+
+        anchor_ratio = cls._sortable_number(anchor.competition_ratio)
+        candidate_ratio = cls._sortable_number(candidate.competition_ratio)
+        if candidate_ratio < anchor_ratio and candidate_ratio != math.inf:
+            return True
+
+        anchor_score = cls._sortable_number(anchor.min_interview_score)
+        candidate_score = cls._sortable_number(candidate.min_interview_score)
+        if candidate_score < anchor_score and candidate_score != math.inf:
+            return True
+
+        return False
 
     @staticmethod
     def _normalize_text(value: str | None) -> str:

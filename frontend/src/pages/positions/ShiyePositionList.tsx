@@ -701,7 +701,46 @@ export default function ShiyePositionList() {
   );
 
   const historyItems = detailExtension?.history_items || [];
-  const relatedItems = detailExtension?.related_items || [];
+  const relatedGroups = (detailExtension?.related_groups || []).filter((group) => group.items?.length);
+
+  const renderRelatedPosition = (item: Position) => (
+    <List.Item key={item.id}>
+      <div style={{ width: '100%' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            gap: 12,
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <a onClick={() => openPositionDetail(item)}>
+              {item.title || item.department || '推荐岗位'}
+            </a>
+            <div style={{ marginTop: 4, color: '#595959', fontSize: 12 }}>
+              {item.department || '-'} · {item.city || '-'} · {(item.selection_location || item.location || '-')}
+            </div>
+          </div>
+          <Typography.Text style={{ whiteSpace: 'nowrap', color: '#1677ff' }}>
+            相似度 {item.similarity_score || 0}
+          </Typography.Text>
+        </div>
+        <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {(item.match_reasons || []).slice(0, 4).map((reason) => (
+            <Tag key={`${item.id}-${reason}`} color="blue">
+              {reason}
+            </Tag>
+          ))}
+          {(item.risk_tags || []).slice(0, 2).map((tag) => (
+            <Tag key={`${item.id}-${tag}`} color={tag === '高竞争' || tag === '高分线' ? 'red' : 'orange'}>
+              {tag}
+            </Tag>
+          ))}
+        </div>
+      </div>
+    </List.Item>
+  );
 
   const detailContent = selectedPosition ? (
     <Space direction="vertical" style={{ width: '100%' }} size="middle">
@@ -809,49 +848,26 @@ export default function ShiyePositionList() {
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
             <Spin size="small" />
           </div>
-        ) : relatedItems.length ? (
-          <List
-            size="small"
-            dataSource={relatedItems}
-            renderItem={(item) => (
-              <List.Item>
-                <div style={{ width: '100%' }}>
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                    }}
-                  >
-                    <div style={{ minWidth: 0 }}>
-                      <a onClick={() => openPositionDetail(item)}>
-                        {item.title || item.department || '推荐岗位'}
-                      </a>
-                      <div style={{ marginTop: 4, color: '#595959', fontSize: 12 }}>
-                        {item.department || '-'} · {item.city || '-'} · {(item.selection_location || item.location || '-')}
-                      </div>
+        ) : relatedGroups.length ? (
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            {relatedGroups.map((group) => (
+              <div key={group.key}>
+                <div style={{ marginBottom: 8 }}>
+                  <Typography.Text strong>{group.title}</Typography.Text>
+                  {group.description ? (
+                    <div style={{ marginTop: 2, color: '#8c8c8c', fontSize: 12 }}>
+                      {group.description}
                     </div>
-                    <Typography.Text style={{ whiteSpace: 'nowrap', color: '#1677ff' }}>
-                      相似度 {item.similarity_score || 0}
-                    </Typography.Text>
-                  </div>
-                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                    {(item.match_reasons || []).slice(0, 4).map((reason) => (
-                      <Tag key={`${item.id}-${reason}`} color="blue">
-                        {reason}
-                      </Tag>
-                    ))}
-                    {(item.risk_tags || []).slice(0, 2).map((tag) => (
-                      <Tag key={`${item.id}-${tag}`} color={tag === '高竞争' || tag === '高分线' ? 'red' : 'orange'}>
-                        {tag}
-                      </Tag>
-                    ))}
-                  </div>
+                  ) : null}
                 </div>
-              </List.Item>
-            )}
-          />
+                <List
+                  size="small"
+                  dataSource={group.items}
+                  renderItem={renderRelatedPosition}
+                />
+              </div>
+            ))}
+          </Space>
         ) : (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}

@@ -68,9 +68,17 @@ class PositionRelatedItem(PositionResponse):
     risk_score: int = 0
 
 
+class PositionRelatedGroup(BaseModel):
+    key: str
+    title: str
+    description: Optional[str] = None
+    items: list[PositionRelatedItem] = Field(default_factory=list)
+
+
 class PositionDetailExtensionResponse(BaseModel):
     history_items: list[PositionResponse] = Field(default_factory=list)
     related_items: list[PositionRelatedItem] = Field(default_factory=list)
+    related_groups: list[PositionRelatedGroup] = Field(default_factory=list)
 
 
 class PositionListResponse(BaseModel):

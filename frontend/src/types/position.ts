@@ -64,6 +64,12 @@ export interface Position {
 export interface PositionDetailExtension {
   history_items: Position[];
   related_items: Position[];
+  related_groups?: Array<{
+    key: string;
+    title: string;
+    description?: string;
+    items: Position[];
+  }>;
 }
 
 export interface PositionFilterOptions {

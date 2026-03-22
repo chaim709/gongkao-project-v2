@@ -93,10 +93,11 @@ def build_position(**overrides):
 @pytest.mark.asyncio
 async def test_get_detail_extension_prefers_same_city_and_returns_empty_history():
     current = build_position(id=1)
-    same_city_best = build_position(id=2, title="同城高相关岗位")
+    same_department = build_position(id=2, title="同单位岗位", department="某单位")
     same_city_lower = build_position(
         id=3,
         title="同城低相关岗位",
+        department="其他单位A",
         exam_category="工勤类",
         education="大专及以上",
         major="不限",
@@ -106,9 +107,22 @@ async def test_get_detail_extension_prefers_same_city_and_returns_empty_history(
         successful_applicants=180,
         min_interview_score=70,
     )
-    other_city_high_similarity = build_position(
+    same_city_same_type = build_position(
         id=4,
+        title="同城同类岗位",
+        department="其他单位B",
+        city="南京市",
+        exam_category="管理类",
+        major="财务管理，审计学",
+        competition_ratio=10,
+        apply_count=10,
+        successful_applicants=10,
+        min_interview_score=58,
+    )
+    other_city_high_similarity = build_position(
+        id=5,
         title="异地高相关岗位",
+        department="其他单位C",
         city="苏州市",
         competition_ratio=10,
         apply_count=10,
@@ -119,7 +133,7 @@ async def test_get_detail_extension_prefers_same_city_and_returns_empty_history(
     db = FakeDB(
         FakeExecuteResult(scalar=current),
         FakeExecuteResult(items=[]),
-        FakeExecuteResult(items=[current, same_city_best, same_city_lower, other_city_high_similarity]),
+        FakeExecuteResult(items=[current, same_department, same_city_lower, same_city_same_type, other_city_high_similarity]),
     )
 
     result = await PositionDetailExtensionService.get_detail_extension(
@@ -129,12 +143,14 @@ async def test_get_detail_extension_prefers_same_city_and_returns_empty_history(
 
     assert result is not None
     assert result["history_items"] == []
-    assert [item["id"] for item in result["related_items"]] == [2, 3, 4]
-    assert result["related_items"][0]["similarity_score"] > result["related_items"][1]["similarity_score"]
-    assert result["related_items"][1]["city"] == "南京市"
-    assert result["related_items"][2]["city"] == "苏州市"
-    assert "高竞争" in result["related_items"][1]["risk_tags"]
-    assert result["related_items"][1]["risk_score"] > 0
+    assert [item["id"] for item in result["related_items"][:3]] == [2, 4, 3]
+    assert result["related_groups"][0]["key"] == "same_department"
+    assert [item["id"] for item in result["related_groups"][0]["items"]] == [2]
+    assert result["related_groups"][1]["key"] == "same_city_same_type"
+    assert [item["id"] for item in result["related_groups"][1]["items"]] == [4]
+    assert result["related_groups"][2]["key"] == "lower_risk_alternative"
+    assert [item["id"] for item in result["related_groups"][2]["items"]] == [5]
+    assert result["related_groups"][2]["items"][0]["risk_score"] < result["related_items"][2]["risk_score"]
     assert all(item["id"] != current.id for item in result["related_items"])
 
 
@@ -158,3 +174,4 @@ async def test_get_detail_extension_respects_related_limit():
 
     assert result is not None
     assert len(result["related_items"]) == 3
+    assert all(len(group["items"]) <= 3 for group in result["related_groups"])
