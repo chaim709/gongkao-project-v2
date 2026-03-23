@@ -35,6 +35,7 @@ def _register_fonts():
     if _FONT_REGISTERED:
         return
     font_paths = [
+        ("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", "WenQuanYiZenHei"),
         ("/System/Library/Fonts/PingFang.ttc", "PingFang"),
         ("/System/Library/Fonts/STHeiti Medium.ttc", "STHeiti"),
         ("/System/Library/Fonts/Supplemental/Songti.ttc", "Songti"),
@@ -52,7 +53,7 @@ def _register_fonts():
 
 def _get_font():
     """获取已注册的中文字体名"""
-    for name in ["PingFang", "STHeiti", "Songti"]:
+    for name in ["WenQuanYiZenHei", "PingFang", "STHeiti", "Songti"]:
         if name in pdfmetrics.getRegisteredFontNames():
             return name
     return "Helvetica"
