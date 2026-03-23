@@ -174,9 +174,9 @@ class PDFReportService:
                 )
 
             for position in positions:
-                extension = await PositionDetailExtensionService.get_detail_extension(
+                extension = await PositionDetailExtensionService.get_detail_extension_for_position(
                     db,
-                    position_id=position.id,
+                    position=position,
                     related_limit=2,
                 )
                 related_recommendations_by_position[position.id] = (
@@ -373,6 +373,22 @@ class PDFReportService:
                                 small_style,
                             )
                         )
+                story.append(Spacer(1, 8))
+
+            recommendation_positions = [
+                position
+                for position in positions
+                if any(group.get("items") for group in related_recommendations_by_position.get(position.id, []))
+            ]
+            if recommendation_positions:
+                story.append(Paragraph("四、岗位替代建议", heading_style))
+                story.append(
+                    Paragraph(
+                        "针对你已勾选的岗位，继续从同单位、同城同类、低风险替代三个方向补充备选项。",
+                        small_style,
+                    )
+                )
+                for position in recommendation_positions:
                     related_groups = related_recommendations_by_position.get(position.id, [])
                     PDFReportService._append_shiye_related_recommendations(
                         story,
@@ -382,7 +398,7 @@ class PDFReportService:
                         small_style=small_style,
                         font_name=font_name,
                     )
-                story.append(Spacer(1, 8))
+                    story.append(Spacer(1, 6))
         else:
             # ===== 推荐岗位 =====
             story.append(Paragraph(f"二、推荐岗位 ({len(positions)}个)", heading_style))
@@ -493,7 +509,9 @@ class PDFReportService:
 
         story.append(
             Paragraph(
-                f'{position.title or "岗位"} 的延伸推荐',
+                f'{position.title or "岗位"}'
+                f'（{position.department or "-"} / {position.city or "-"} / {position.location or "-"}）'
+                "的延伸推荐",
                 ParagraphStyle(
                     f"related_heading_{position.id}",
                     parent=body_style,
