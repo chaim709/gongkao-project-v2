@@ -183,6 +183,7 @@ class PDFReportRequest(BaseModel):
     funding_sources: list[str] = Field(default_factory=list)
     recruitment_targets: list[str] = Field(default_factory=list)
     post_natures: list[str] = Field(default_factory=list)
+    preferred_post_natures: list[str] = Field(default_factory=list)
     excluded_risk_tags: list[str] = Field(default_factory=list)
     recommendation_tiers: list[str] = Field(default_factory=list)
     recommendation_tier: Optional[str] = None
