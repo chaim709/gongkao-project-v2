@@ -53,6 +53,7 @@ export interface Position {
   recommendation_reasons?: string[];
   post_nature?: string;
   similarity_score?: number;
+  recommendation_reason?: string;
   risk_tags?: string[];
   risk_reasons?: string[];
   risk_score?: number;

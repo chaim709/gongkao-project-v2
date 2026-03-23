@@ -116,8 +116,10 @@ class PDFReportService:
         shiye_items: list[Dict[str, Any]] = []
         sort_basis: list[str] = []
         tier_counts = {"冲刺": 0, "稳妥": 0, "保底": 0}
+        related_recommendations_by_position: dict[int, list[Dict[str, Any]]] = {}
 
         if exam_type == "事业单位" and positions:
+            from app.services.position_detail_extension_service import PositionDetailExtensionService
             from app.services.selection.shiye_selection_service import ShiyeSelectionService
 
             selection_result = await ShiyeSelectionService.search(
@@ -169,6 +171,18 @@ class PDFReportService:
                         "recommendation_tier": "稳妥",
                         "recommendation_reasons": ["当前缺少完整排序上下文，默认归入稳妥"],
                     }
+                )
+
+            for position in positions:
+                extension = await PositionDetailExtensionService.get_detail_extension(
+                    db,
+                    position_id=position.id,
+                    related_limit=2,
+                )
+                related_recommendations_by_position[position.id] = (
+                    extension.get("related_groups", [])
+                    if extension
+                    else []
                 )
 
         grouped_shiye_items: dict[str, list[Dict[str, Any]]] = {
@@ -359,6 +373,15 @@ class PDFReportService:
                                 small_style,
                             )
                         )
+                    related_groups = related_recommendations_by_position.get(position.id, [])
+                    PDFReportService._append_shiye_related_recommendations(
+                        story,
+                        position=position,
+                        related_groups=related_groups,
+                        body_style=body_style,
+                        small_style=small_style,
+                        font_name=font_name,
+                    )
                 story.append(Spacer(1, 8))
         else:
             # ===== 推荐岗位 =====
@@ -453,3 +476,72 @@ class PDFReportService:
         doc.build(story)
         buffer.seek(0)
         return buffer
+
+    @staticmethod
+    def _append_shiye_related_recommendations(
+        story: list,
+        *,
+        position: Position,
+        related_groups: list[Dict[str, Any]],
+        body_style: ParagraphStyle,
+        small_style: ParagraphStyle,
+        font_name: str,
+    ) -> None:
+        visible_groups = [group for group in related_groups if group.get("items")]
+        if not visible_groups:
+            return
+
+        story.append(
+            Paragraph(
+                f'{position.title or "岗位"} 的延伸推荐',
+                ParagraphStyle(
+                    f"related_heading_{position.id}",
+                    parent=body_style,
+                    fontName=font_name,
+                    fontSize=9,
+                    spaceBefore=4,
+                    spaceAfter=2,
+                    textColor=colors.HexColor("#0958d9"),
+                ),
+            )
+        )
+
+        for group in visible_groups:
+            story.append(
+                Paragraph(
+                    f'[{group.get("title") or "推荐岗位"}] {group.get("description") or ""}'.strip(),
+                    ParagraphStyle(
+                        f"related_group_{position.id}_{group.get('key', 'default')}",
+                        parent=small_style,
+                        fontName=font_name,
+                        fontSize=8,
+                        spaceBefore=1,
+                        spaceAfter=1,
+                        textColor=colors.HexColor("#595959"),
+                    ),
+                )
+            )
+
+            for item in group.get("items", [])[:2]:
+                metrics = []
+                if item.get("competition_ratio"):
+                    metrics.append(f'竞争比 {float(item["competition_ratio"]):.0f}:1')
+                if item.get("min_interview_score"):
+                    metrics.append(f'进面分 {float(item["min_interview_score"]):.1f}')
+                if item.get("risk_tags"):
+                    metrics.append(f'风险标签 {"、".join(item["risk_tags"][:2])}')
+
+                meta_parts = [
+                    item.get("department") or "-",
+                    item.get("city") or "-",
+                    item.get("selection_location") or item.get("location") or "-",
+                ]
+                summary = item.get("recommendation_reason") or "可作为延伸对比岗位。"
+                line = (
+                    f'- {item.get("title") or "推荐岗位"}'
+                    f'（{" / ".join(meta_parts)}）'
+                    f'：{summary}'
+                )
+                if metrics:
+                    line += f'；{"；".join(metrics)}'
+                story.append(Paragraph(line, small_style))

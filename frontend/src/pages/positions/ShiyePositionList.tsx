@@ -721,6 +721,11 @@ export default function ShiyePositionList() {
             <div style={{ marginTop: 4, color: '#595959', fontSize: 12 }}>
               {item.department || '-'} · {item.city || '-'} · {(item.selection_location || item.location || '-')}
             </div>
+            {item.recommendation_reason ? (
+              <div style={{ marginTop: 4, color: '#8c8c8c', fontSize: 12, lineHeight: 1.6 }}>
+                {item.recommendation_reason}
+              </div>
+            ) : null}
           </div>
           <Typography.Text style={{ whiteSpace: 'nowrap', color: '#1677ff' }}>
             相似度 {item.similarity_score || 0}

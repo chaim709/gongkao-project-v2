@@ -62,6 +62,7 @@ class PositionRelatedItem(PositionResponse):
     selection_location: Optional[str] = None
     post_nature: Optional[str] = None
     similarity_score: int = 0
+    recommendation_reason: Optional[str] = None
     match_reasons: list[str] = Field(default_factory=list)
     risk_tags: list[str] = Field(default_factory=list)
     risk_reasons: list[str] = Field(default_factory=list)

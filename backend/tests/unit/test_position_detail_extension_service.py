@@ -146,11 +146,14 @@ async def test_get_detail_extension_prefers_same_city_and_returns_empty_history(
     assert [item["id"] for item in result["related_items"][:3]] == [2, 4, 3]
     assert result["related_groups"][0]["key"] == "same_department"
     assert [item["id"] for item in result["related_groups"][0]["items"]] == [2]
+    assert "同属某单位" in result["related_groups"][0]["items"][0]["recommendation_reason"]
     assert result["related_groups"][1]["key"] == "same_city_same_type"
     assert [item["id"] for item in result["related_groups"][1]["items"]] == [4]
+    assert "同在南京市" in result["related_groups"][1]["items"][0]["recommendation_reason"]
     assert result["related_groups"][2]["key"] == "lower_risk_alternative"
     assert [item["id"] for item in result["related_groups"][2]["items"]] == [5]
     assert result["related_groups"][2]["items"][0]["risk_score"] < result["related_items"][2]["risk_score"]
+    assert "竞争比更低" in result["related_groups"][2]["items"][0]["recommendation_reason"]
     assert all(item["id"] != current.id for item in result["related_items"])
 
 

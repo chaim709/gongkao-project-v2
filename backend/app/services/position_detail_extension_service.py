@@ -50,6 +50,22 @@ class PositionDetailExtensionService:
         if not position:
             return None
 
+        return await cls.get_detail_extension_for_position(
+            db,
+            position=position,
+            related_limit=related_limit,
+        )
+
+    @classmethod
+    async def get_detail_extension_for_position(
+        cls,
+        db: AsyncSession,
+        *,
+        position: Position,
+        related_limit: int = DEFAULT_RELATED_LIMIT,
+    ) -> dict[str, Any]:
+        """Build detail extension blocks when the position object is already loaded."""
+
         history_items = await cls._get_history_items(db, position)
         related_candidates = await cls._get_related_items(
             db,
@@ -139,6 +155,8 @@ class PositionDetailExtensionService:
         target_department = cls._normalize_text(position.department)
         target_post_nature = normalize_post_nature(position.exam_category)
         target_location = ShiyeSelectionService._derive_selection_location(position)
+        anchor_competition_ratio = cls._sortable_number(position.competition_ratio)
+        anchor_min_score = cls._sortable_number(position.min_interview_score)
         anchor_risk_result = RiskRules.evaluate(
             competition_ratio=position.competition_ratio,
             apply_count=position.apply_count or position.successful_applicants,
@@ -159,6 +177,9 @@ class PositionDetailExtensionService:
                 target_post_nature=target_post_nature,
                 target_location=target_location,
             )
+            candidate_location = ShiyeSelectionService._derive_selection_location(candidate)
+            candidate_competition_ratio = cls._sortable_number(candidate.competition_ratio)
+            candidate_min_score = cls._sortable_number(candidate.min_interview_score)
             risk_result = RiskRules.evaluate(
                 competition_ratio=candidate.competition_ratio,
                 apply_count=candidate.apply_count or candidate.successful_applicants,
@@ -173,13 +194,17 @@ class PositionDetailExtensionService:
             related_items.append(
                 {
                     "position": candidate,
-                    "selection_location": ShiyeSelectionService._derive_selection_location(candidate),
+                    "selection_location": candidate_location,
                     "post_nature": normalize_post_nature(candidate.exam_category),
                     "similarity_score": similarity_score,
                     "match_reasons": match_reasons,
                     "risk_tags": list(risk_result.risk_tags),
                     "risk_reasons": list(risk_result.risk_reasons),
                     "risk_score": risk_result.risk_score,
+                    "risk_score_delta": cls._safe_delta(
+                        anchor_risk_result.risk_score,
+                        risk_result.risk_score,
+                    ),
                     "same_department": bool(target_department)
                     and cls._normalize_text(candidate.department) == target_department,
                     "same_city": bool(target_city)
@@ -188,6 +213,16 @@ class PositionDetailExtensionService:
                     == cls._normalize_text(position.exam_category),
                     "same_post_nature": normalize_post_nature(candidate.exam_category)
                     == target_post_nature,
+                    "same_location": bool(target_location)
+                    and candidate_location == target_location,
+                    "competition_ratio_delta": cls._safe_delta(
+                        anchor_competition_ratio,
+                        candidate_competition_ratio,
+                    ),
+                    "min_score_delta": cls._safe_delta(
+                        anchor_min_score,
+                        candidate_min_score,
+                    ),
                     "lower_risk": cls._is_lower_risk_alternative(
                         anchor=position,
                         anchor_risk_score=anchor_risk_result.risk_score,
@@ -264,7 +299,7 @@ class PositionDetailExtensionService:
                     "key": key,
                     "title": title,
                     "description": description,
-                    "items": [cls._serialize_related_item(item) for item in selected],
+                    "items": [cls._serialize_related_item(item, group_key=key) for item in selected],
                 }
             )
         return groups
@@ -395,13 +430,23 @@ class PositionDetailExtensionService:
         return tokens
 
     @classmethod
-    def _serialize_related_item(cls, item: dict[str, Any]) -> dict[str, Any]:
+    def _serialize_related_item(
+        cls,
+        item: dict[str, Any],
+        *,
+        group_key: str | None = None,
+    ) -> dict[str, Any]:
+        effective_group_key = group_key or cls._infer_primary_group_key(item)
         position_payload = PositionResponse.model_validate(item["position"]).model_dump()
         position_payload.update(
             {
                 "selection_location": item["selection_location"],
                 "post_nature": item["post_nature"],
                 "similarity_score": item["similarity_score"],
+                "recommendation_reason": cls._build_recommendation_reason(
+                    item,
+                    group_key=effective_group_key,
+                ),
                 "match_reasons": item["match_reasons"],
                 "risk_tags": item["risk_tags"],
                 "risk_reasons": item["risk_reasons"],
@@ -433,6 +478,115 @@ class PositionDetailExtensionService:
             return True
 
         return False
+
+    @classmethod
+    def _infer_primary_group_key(cls, item: dict[str, Any]) -> str | None:
+        if item.get("same_department"):
+            return cls.SAME_DEPARTMENT_KEY
+        if item.get("same_city") and (item.get("same_post_nature") or item.get("same_exam_category")):
+            return cls.SAME_CITY_TYPE_KEY
+        if (
+            item.get("lower_risk")
+            and item.get("similarity_score", 0) >= cls.LOWER_RISK_MIN_SIMILARITY
+            and (
+                item.get("same_city")
+                or item.get("same_post_nature")
+                or item.get("same_exam_category")
+            )
+        ):
+            return cls.LOWER_RISK_KEY
+        return None
+
+    @classmethod
+    def _build_recommendation_reason(
+        cls,
+        item: dict[str, Any],
+        *,
+        group_key: str | None,
+    ) -> str | None:
+        position = item["position"]
+        location_label = item.get("selection_location") or position.location or position.city
+        post_nature = item.get("post_nature") or position.exam_category or "相近岗位"
+        match_reasons = list(item.get("match_reasons") or [])
+        core_reason = cls._pick_reason(match_reasons)
+        parts: list[str] = []
+
+        if group_key == cls.SAME_DEPARTMENT_KEY:
+            if position.department:
+                parts.append(f"同属{position.department}")
+            if item.get("same_post_nature"):
+                parts.append(f"同为{post_nature}")
+            elif item.get("same_exam_category") and position.exam_category:
+                parts.append(f"笔试类别同为{position.exam_category}")
+            if item.get("same_location") and location_label:
+                parts.append(f"落在同一区域{location_label}")
+            parts.append("适合做单位内横向比较")
+        elif group_key == cls.SAME_CITY_TYPE_KEY:
+            if position.city:
+                parts.append(f"同在{position.city}")
+            if item.get("same_post_nature"):
+                parts.append(f"岗位性质同为{post_nature}")
+            elif item.get("same_exam_category") and position.exam_category:
+                parts.append(f"笔试类别同为{position.exam_category}")
+            if core_reason:
+                parts.append(core_reason)
+            parts.append("适合做同城同类比较")
+        elif group_key == cls.LOWER_RISK_KEY:
+            parts.append(f"与当前岗位相似度{item.get('similarity_score', 0)}")
+            lowered_metrics: list[str] = []
+            competition_ratio = cls._format_ratio(position.competition_ratio)
+            min_score = cls._format_score(position.min_interview_score)
+            if item.get("competition_ratio_delta", 0) > 0 and competition_ratio:
+                lowered_metrics.append(f"竞争比更低至{competition_ratio}")
+            if item.get("min_score_delta", 0) > 0 and min_score:
+                lowered_metrics.append(f"进面分更低至{min_score}")
+            if item.get("risk_score_delta", 0) > 0:
+                lowered_metrics.append("综合风险更低")
+            parts.extend(lowered_metrics[:2] or ["竞争压力更可控"])
+            if item.get("same_city") and position.city:
+                parts.append(f"仍保留{position.city}本地选择")
+            elif item.get("same_post_nature"):
+                parts.append(f"仍保持{post_nature}方向")
+        else:
+            if core_reason:
+                parts.append(core_reason)
+
+        return "；".join(part for part in parts if part) or None
+
+    @staticmethod
+    def _pick_reason(match_reasons: list[str]) -> str | None:
+        preferred_keywords = ("专业", "学历", "地区", "岗位性质", "考试类别")
+        for keyword in preferred_keywords:
+            for reason in match_reasons:
+                if keyword in reason:
+                    return reason
+        return match_reasons[0] if match_reasons else None
+
+    @staticmethod
+    def _safe_delta(left: float | int, right: float | int) -> float:
+        if left == math.inf or right == math.inf:
+            return 0
+        return float(left) - float(right)
+
+    @staticmethod
+    def _format_ratio(value: Any) -> str | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(number):
+            return None
+        return f"{number:.0f}:1"
+
+    @staticmethod
+    def _format_score(value: Any) -> str | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if math.isnan(number):
+            return None
+        return f"{number:.1f}"
 
     @staticmethod
     def _normalize_text(value: str | None) -> str:
