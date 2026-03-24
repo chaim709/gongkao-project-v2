@@ -13,9 +13,19 @@ export const positionApi = {
     exam_category?: string; difficulty_level?: string;
     location?: string; province?: string; institution_level?: string;
     funding_source?: string; recruitment_target?: string;
+    recruitment_targets?: string[];
     sort_by?: string; sort_order?: string;
-  }) =>
-    client.get('/positions', { params }),
+  }) => {
+    const requestParams: Record<string, unknown> = {
+      ...params,
+    };
+    if (params.recruitment_targets?.length) {
+      requestParams.recruitment_targets = params.recruitment_targets.join('||');
+    } else {
+      delete requestParams.recruitment_targets;
+    }
+    return client.get('/positions', { params: requestParams });
+  },
 
   filterOptions: (params?: { year?: number; exam_type?: string }) =>
     client.get('/positions/filter-options', { params }),

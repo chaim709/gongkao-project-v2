@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from typing import Any
 
 from sqlalchemy import and_, select
@@ -18,12 +19,10 @@ from app.services.selection.shiye_filter_normalizers import (
     FUNDING_SOURCE_ORDER,
     POST_NATURE_ORDER,
     RECOMMENDATION_TIER_ORDER,
-    RECRUITMENT_TARGET_ORDER,
     RISK_TAG_ORDER,
     normalize_funding_source,
     normalize_post_nature,
     normalize_recommendation_tier,
-    normalize_recruitment_target,
     normalize_risk_tag,
     normalize_selection_values,
     order_values,
@@ -103,9 +102,8 @@ class ShiyeSelectionService:
             [funding_source, *(funding_sources or [])],
             normalizer=normalize_funding_source,
         )
-        normalized_recruitment_targets = normalize_selection_values(
+        normalized_recruitment_targets = cls._normalize_raw_recruitment_filters(
             [recruitment_target, *(recruitment_targets or [])],
-            normalizer=normalize_recruitment_target,
         )
         normalized_excluded_risk_tags = normalize_selection_values(
             excluded_risk_tags,
@@ -125,7 +123,7 @@ class ShiyeSelectionService:
                 "normalized_funding_source": normalize_funding_source(
                     position.funding_source
                 ),
-                "normalized_recruitment_target": normalize_recruitment_target(
+                "normalized_recruitment_target": cls._normalize_raw_recruitment_text(
                     position.recruitment_target
                 ),
             }
@@ -219,7 +217,7 @@ class ShiyeSelectionService:
                     "post_nature": post_nature,
                     "selection_location": filtered_position["selection_location"],
                     "funding_source": normalized_funding_source,
-                    "recruitment_target": normalized_recruitment_target,
+                    "recruitment_target": normalized_recruitment_target or "待确认",
                     "risk_tags": list(risk_result.risk_tags),
                     "risk_reasons": list(risk_result.risk_reasons),
                     "risk_score": risk_result.risk_score,
@@ -328,12 +326,9 @@ class ShiyeSelectionService:
             ),
             FUNDING_SOURCE_ORDER,
         )
-        recruitment_targets = order_values(
-            (
-                normalize_recruitment_target(position.recruitment_target)
-                for position in positions
-            ),
-            RECRUITMENT_TARGET_ORDER,
+        recruitment_targets = cls._build_raw_recruitment_target_options(
+            position.recruitment_target
+            for position in positions
         )
         post_natures = order_values(
             (normalize_post_nature(position.exam_category) for position in positions),
@@ -439,6 +434,36 @@ class ShiyeSelectionService:
         if city_rule is not None:
             unique_values.update(city_rule.required_locations)
         return cls._order_locations_for_city(city, list(unique_values))
+
+    @classmethod
+    def _normalize_raw_recruitment_text(cls, value: str | None) -> str:
+        return "".join(str(value or "").split()).strip()
+
+    @classmethod
+    def _normalize_raw_recruitment_filters(cls, values: list[str | None]) -> list[str]:
+        normalized_values: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            normalized = cls._normalize_raw_recruitment_text(value)
+            if not normalized or normalized in seen:
+                continue
+            normalized_values.append(normalized)
+            seen.add(normalized)
+        return normalized_values
+
+    @classmethod
+    def _build_raw_recruitment_target_options(
+        cls,
+        values: Iterable[str | None],
+    ) -> list[str]:
+        option_map: dict[str, str] = {}
+        for value in values:
+            normalized = cls._normalize_raw_recruitment_text(value)
+            if not normalized:
+                continue
+            # 使用去空白后的文本作为显示值，保持原表语义但去掉脏空格/换行。
+            option_map.setdefault(normalized, normalized)
+        return sorted(option_map.values())
 
     @classmethod
     def _derive_eligibility(cls, match_result: dict[str, Any]) -> dict[str, Any]:

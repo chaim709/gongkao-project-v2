@@ -17,45 +17,56 @@ class PositionSmartImportService:
     COLUMN_ALIASES = {
         # 地市
         '地市': 'city', '地': 'city', '地区': 'city',
+        '区县': 'location',
         # 隶属关系
         '隶属关系': 'affiliation', '隶属  关系': 'affiliation',
         # 地区代码
         '地区代码': 'district_code', '地区  代码': 'district_code',
         # 地区名称（映射到 location）
         '地区名称': 'location',
+        '主管部门': 'supervising_dept',
         # 单位代码
         '单位代码': 'department_code', '部门代码': 'department_code',
         # 单位名称
         '单位名称': 'department', '部门名称': 'department',
         '招考部门': 'department', '招录机关': 'department',
+        '招录单位': 'department', '招聘单位': 'department',
         # 职位代码
-        '职位代码': 'position_code',
+        '职位代码': 'position_code', '岗位代码': 'position_code',
         # 职位名称
-        '职位名称': 'title',
+        '职位名称': 'title', '岗位名称': 'title',
         # 职位简介
-        '职位简介': 'description', '职位描述': 'description',
+        '职位简介': 'description', '职位描述': 'description', '岗位说明': 'description',
         # 考试类别
         '职位类别': 'exam_category', '考试类别': 'exam_category',
-        '职位类型': 'exam_category', '岗位类别': 'exam_category',
+        '职位类型': 'exam_category', '岗位类别': 'exam_category', '笔试类别': 'exam_category',
         # 开考比例
-        '开考比例': 'open_ratio',
+        '开考比例': 'exam_ratio',
         # 招录人数
         '招考人数': 'recruitment_count', '招录人数': 'recruitment_count',
-        '录用计划数': 'recruitment_count',
+        '录用计划数': 'recruitment_count', '招聘人数': 'recruitment_count',
         # 学历
         '学历': 'education', '学\u3000历': 'education', '学历要求': 'education',
+        '学位': 'degree',
         # 专业
         '专业': 'major', '专\u3000业': 'major', '专业要求': 'major',
         # 其他条件
         '其它': 'other_requirements', '其\u3000它': 'other_requirements',
         '其他条件': 'other_requirements', '其他要求': 'other_requirements',
         '备注': 'other_requirements',
+        '经费来源': 'funding_source',
+        '招聘对象': 'recruitment_target',
+        '岗位等级': 'position_level',
+        '笔面试占比': 'exam_weight_ratio',
+        '面试比例': 'interview_ratio',
+        '招聘部门（单位）考试形式和所占比例': 'exam_weight_ratio',
+        '其他说明': 'remark',
         # 单位性质
         '单位性质': 'department_type', '地市+系统': 'department_type',
         # 报名人数
         '报名成功人数': 'successful_applicants',
         '审核通过人数': 'successful_applicants',
-        '报名人数': 'successful_applicants',
+        '报名人数': 'apply_count',
         '报名人数2': 'successful_applicants',
         '合格人数': 'successful_applicants',
         # 竞争比
@@ -115,24 +126,64 @@ class PositionSmartImportService:
         return 'unknown'
 
     @classmethod
-    def detect_header_row(cls, ws) -> Tuple[int, List[str]]:
-        """检测实际表头行（可能第1行是广告）"""
-        row1 = [str(c.value).strip() if c.value else '' for c in ws[1]]
+    def _clean_header(cls, value: Any) -> str:
+        if value is None:
+            return ''
+        return str(value).strip().replace('\n', '').replace('\r', '')
+
+    @classmethod
+    def _compose_header(cls, parent: str, child: str) -> str:
+        parent = cls._clean_header(parent)
+        child = cls._clean_header(child)
+
+        if not child:
+            return parent
+        if not parent:
+            return child
+
+        if child == '名称':
+            if '单位' in parent:
+                return '单位名称'
+            if '岗位' in parent:
+                return '岗位名称'
+        return child
+
+    @classmethod
+    def detect_header_row(cls, ws) -> Tuple[int, int, List[str]]:
+        """检测实际表头行（支持单行和双行表头）"""
+        row1 = [cls._clean_header(c.value) for c in ws[1]]
         row2_cells = list(ws[2]) if ws.max_row >= 2 else []
-        row2 = [str(c.value).strip() if c.value else '' for c in row2_cells]
+        row2 = [cls._clean_header(c.value) for c in row2_cells]
+        row3_cells = list(ws[3]) if ws.max_row >= 3 else []
+        row3 = [cls._clean_header(c.value) for c in row3_cells]
+
+        max_len = max(len(row2), len(row3))
+        merged_row23 = [
+            cls._compose_header(
+                row2[idx] if idx < len(row2) else '',
+                row3[idx] if idx < len(row3) else '',
+            )
+            for idx in range(max_len)
+        ]
 
         # 检查 row1 是否像表头（包含已知列名）
         known_cols = set(cls.COLUMN_ALIASES.keys())
         row1_matches = sum(1 for h in row1 if h in known_cols)
         row2_matches = sum(1 for h in row2 if h in known_cols)
+        row3_matches = sum(1 for h in row3 if h in known_cols)
+        merged_matches = sum(1 for h in merged_row23 if h in known_cols)
 
         if row1_matches >= 3:
-            return 1, row1
+            return 1, 2, row1
+        if merged_matches >= 3:
+            return 2, 4, merged_row23
         if row2_matches >= 3:
-            return 2, row2
+            return 2, 3, row2
+        if row3_matches >= 3:
+            return 3, 4, row3
 
         # 如果都不明显，默认第1行
-        return 1, row1
+        return 1, 2, row1
 
     # ===== 列映射 =====
     @classmethod
@@ -156,56 +207,79 @@ class PositionSmartImportService:
         返回: {type, header_row, column_mapping, rows: [{field: value}]}
         """
         wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
-        ws = wb[sheet_name] if sheet_name and sheet_name in wb.sheetnames else wb.active
+        worksheets = (
+            [wb[sheet_name]]
+            if sheet_name and sheet_name in wb.sheetnames
+            else [wb[name] for name in wb.sheetnames]
+        )
 
-        header_row_num, headers = cls.detect_header_row(ws)
-        file_type = cls.detect_file_type(headers)
-        column_mapping = cls.map_columns(headers)
+        all_rows = []
+        detected_types = []
+        header_rows = []
+        merged_columns: Dict[str, int] = {}
+        max_column_count = 0
 
-        rows = []
         str_fields = {'district_code', 'department_code', 'position_code'}
+        int_fields = {'recruitment_count', 'successful_applicants', 'apply_count'}
 
-        for row in ws.iter_rows(min_row=header_row_num + 1, values_only=True):
-            if not any(row):
-                continue
+        for ws in worksheets:
+            header_row_num, data_start_row, headers = cls.detect_header_row(ws)
+            file_type = cls.detect_file_type(headers)
+            column_mapping = cls.map_columns(headers)
+            max_column_count = max(max_column_count, len(column_mapping))
+            header_rows.append(header_row_num)
+            if file_type != 'unknown':
+                detected_types.append(file_type)
+            for field, index in {v: k for k, v in column_mapping.items() if not v.startswith('_')}.items():
+                merged_columns.setdefault(field, index)
 
-            record = {}
-            for col_idx, field in column_mapping.items():
-                if col_idx < len(row):
-                    value = row[col_idx]
-                    if value is None:
-                        continue
-                    if field.startswith('_'):
-                        record[field] = value
-                        continue
-                    if field in str_fields:
-                        record[field] = str(value).strip()
-                    elif field in ('recruitment_count', 'successful_applicants'):
-                        try:
-                            record[field] = int(float(value))
-                        except (ValueError, TypeError):
-                            pass
-                    elif field in ('competition_ratio', 'min_interview_score',
-                                   'max_interview_score', 'max_xingce_score',
-                                   'max_shenlun_score'):
-                        try:
-                            record[field] = float(value)
-                        except (ValueError, TypeError):
-                            pass
-                    else:
-                        record[field] = str(value).strip() if value is not None else None
+            for row in ws.iter_rows(min_row=data_start_row, values_only=True):
+                if not any(row):
+                    continue
 
-            if record.get('title') or record.get('department') or record.get('position_code'):
-                rows.append(record)
+                record = {}
+                for col_idx, field in column_mapping.items():
+                    if col_idx < len(row):
+                        value = row[col_idx]
+                        if value is None:
+                            continue
+                        if field.startswith('_'):
+                            record[field] = value
+                            continue
+                        if field in str_fields:
+                            record[field] = str(value).strip()
+                        elif field in int_fields:
+                            try:
+                                record[field] = int(float(value))
+                            except (ValueError, TypeError):
+                                pass
+                        elif field in ('competition_ratio', 'min_interview_score',
+                                       'max_interview_score', 'max_xingce_score',
+                                       'max_shenlun_score'):
+                            try:
+                                record[field] = float(value)
+                            except (ValueError, TypeError):
+                                pass
+                        else:
+                            record[field] = str(value).strip() if value is not None else None
+
+                if record.get('title') or record.get('department') or record.get('position_code'):
+                    all_rows.append(record)
+
+        file_type = 'unknown'
+        for candidate in ('complete', 'application', 'score', 'position'):
+            if candidate in detected_types:
+                file_type = candidate
+                break
 
         wb.close()
         return {
             'type': file_type,
-            'header_row': header_row_num,
-            'column_count': len(column_mapping),
-            'row_count': len(rows),
-            'columns_detected': {v: k for k, v in column_mapping.items() if not v.startswith('_')},
-            'rows': rows,
+            'header_row': min(header_rows) if header_rows else 1,
+            'column_count': max_column_count,
+            'row_count': len(all_rows),
+            'columns_detected': merged_columns,
+            'rows': all_rows,
         }
 
     # ===== 进面分数线合并 =====
@@ -422,6 +496,8 @@ class PositionSmartImportService:
                     app = app_index[key]
                     if app.get('successful_applicants') is not None:
                         pos['successful_applicants'] = app['successful_applicants']
+                    if app.get('apply_count') is not None:
+                        pos['apply_count'] = app['apply_count']
                     if app.get('competition_ratio') is not None:
                         pos['competition_ratio'] = app['competition_ratio']
 
@@ -448,7 +524,7 @@ class PositionSmartImportService:
 
                 # 自动计算竞争比（公式值可能丢失）
                 if not row.get('competition_ratio'):
-                    applicants = row.get('successful_applicants')
+                    applicants = row.get('successful_applicants') or row.get('apply_count')
                     recruit = row.get('recruitment_count')
                     if applicants and recruit and recruit > 0:
                         row['competition_ratio'] = round(applicants / recruit, 1)

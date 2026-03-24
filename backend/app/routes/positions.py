@@ -24,6 +24,22 @@ _filter_cache: dict = {}
 _CACHE_TTL = 300  # 5分钟
 
 
+def _normalize_recruitment_target_text(value: Optional[str]) -> str:
+    return "".join(str(value or "").split()).strip()
+
+
+def _parse_multi_value_query(value: Optional[str]) -> list[str]:
+    parsed: list[str] = []
+    seen: set[str] = set()
+    for item in (value or "").split("||"):
+        normalized = _normalize_recruitment_target_text(item)
+        if not normalized or normalized in seen:
+            continue
+        parsed.append(normalized)
+        seen.add(normalized)
+    return parsed
+
+
 @router.get("/filter-options")
 async def get_filter_options(
     year: Optional[int] = None,
@@ -157,13 +173,19 @@ async def get_filter_options(
             .distinct().order_by(Position.funding_source)
         )).scalars().all()
 
-        recruitment_targets = (await db.execute(
+        raw_recruitment_targets = (await db.execute(
             select(Position.recruitment_target).where(base, Position.recruitment_target.isnot(None))
             .distinct().order_by(Position.recruitment_target)
         )).scalars().all()
+        recruitment_targets_map: dict[str, str] = {}
+        for item in raw_recruitment_targets:
+            normalized = _normalize_recruitment_target_text(item)
+            if not normalized:
+                continue
+            recruitment_targets_map.setdefault(normalized, normalized)
 
         result['funding_sources'] = list(funding_sources)
-        result['recruitment_targets'] = list(recruitment_targets)
+        result['recruitment_targets'] = sorted(recruitment_targets_map.values())
 
     # 缓存结果（超出上限时清理最旧的条目）
     if len(_filter_cache) >= _CACHE_MAX_SIZE:
@@ -352,6 +374,7 @@ async def list_positions(
     institution_level: Optional[str] = None,
     funding_source: Optional[str] = None,
     recruitment_target: Optional[str] = None,
+    recruitment_targets: Optional[str] = None,
     sort_by: Optional[str] = None,
     sort_order: Optional[str] = Query(None, regex="^(asc|desc)$"),
     current_user: User = Depends(get_current_user),
@@ -405,9 +428,12 @@ async def list_positions(
     if funding_source:
         query = query.where(Position.funding_source == funding_source)
         count_query = count_query.where(Position.funding_source == funding_source)
+    normalized_recruitment_targets = _parse_multi_value_query(recruitment_targets)
     if recruitment_target:
-        query = query.where(Position.recruitment_target == recruitment_target)
-        count_query = count_query.where(Position.recruitment_target == recruitment_target)
+        normalized_single_target = _normalize_recruitment_target_text(recruitment_target)
+        if normalized_single_target:
+            normalized_recruitment_targets.append(normalized_single_target)
+    normalized_recruitment_targets = list(dict.fromkeys(normalized_recruitment_targets))
 
     # 排序
     sort_columns = {
@@ -423,13 +449,25 @@ async def list_positions(
         query = query.order_by(Position.id)
 
     offset = (page - 1) * page_size
-    if use_shiye_derived_location and location:
+    need_python_side_filter = bool(normalized_recruitment_targets) or (
+        use_shiye_derived_location and location
+    )
+    if need_python_side_filter:
         items = (await db.execute(query)).scalars().all()
-        items = [
-            item
-            for item in items
-            if ShiyeSelectionService._derive_selection_location(item) == location
-        ]
+        if use_shiye_derived_location and location:
+            items = [
+                item
+                for item in items
+                if ShiyeSelectionService._derive_selection_location(item) == location
+            ]
+        if normalized_recruitment_targets:
+            allowed_targets = set(normalized_recruitment_targets)
+            items = [
+                item
+                for item in items
+                if _normalize_recruitment_target_text(item.recruitment_target)
+                in allowed_targets
+            ]
         total = len(items)
         items = items[offset:offset + page_size]
     else:

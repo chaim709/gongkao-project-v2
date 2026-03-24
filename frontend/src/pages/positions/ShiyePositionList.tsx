@@ -17,6 +17,8 @@ import type { ColumnsType } from 'antd/es/table';
 
 const DEFAULT_VISIBLE_COLUMNS = [
   'city',
+  'department',
+  'supervising_dept',
   'title',
   'match_source',
   'eligibility_status',
@@ -32,7 +34,7 @@ const DEFAULT_VISIBLE_COLUMNS = [
   'remark',
 ];
 
-const COLUMN_STORAGE_KEY = 'shiye_position_columns_v2';
+const COLUMN_STORAGE_KEY = 'shiye_position_columns_v3';
 const DEFAULT_TABLE_SCROLL_X = 'max-content';
 
 const EXAM_CATEGORY_COLORS: Record<string, string> = {
@@ -101,9 +103,20 @@ function formatFilterLabel(value: string) {
 function buildSelectionFilterOptions(values: string[] | undefined, options?: {
   excludeUnlimited?: boolean;
 }) {
-  return (values || [])
-    .filter((item) => !options?.excludeUnlimited || item !== '不限')
-    .map((item) => ({ value: item, label: formatFilterLabel(item) }));
+  const dedupedOptions: Array<{ value: string; label: string }> = [];
+  const seen = new Set<string>();
+  for (const item of values || []) {
+    const normalized = String(item || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) continue;
+    if (options?.excludeUnlimited && normalized.includes('不限')) continue;
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    dedupedOptions.push({
+      value: normalized,
+      label: formatFilterLabel(normalized),
+    });
+  }
+  return dedupedOptions;
 }
 
 export default function ShiyePositionList() {
@@ -115,7 +128,7 @@ export default function ShiyePositionList() {
   const [examCategory, setExamCategory] = useState<string>();
   const [postNatures, setPostNatures] = useState<string[]>([]);
   const [fundingSource, setFundingSource] = useState<string>();
-  const [recruitmentTarget, setRecruitmentTarget] = useState<string>();
+  const [recruitmentTargets, setRecruitmentTargets] = useState<string[]>([]);
   const [excludedRiskTags, setExcludedRiskTags] = useState<string[]>([]);
   const [recommendationTier, setRecommendationTier] = useState<string>();
 
@@ -204,11 +217,11 @@ export default function ShiyePositionList() {
   });
 
   const { data: browseData, isLoading: browseLoading } = useQuery({
-    queryKey: ['shiye-positions', params, search, year, city, location, education, examCategory, fundingSource, recruitmentTarget, sortBy, sortOrder],
+    queryKey: ['shiye-positions', params, search, year, city, location, education, examCategory, fundingSource, recruitmentTargets, sortBy, sortOrder],
     queryFn: () => positionApi.list({
       ...params, search: search || undefined, year, exam_type: '事业单位',
       city, location, education, exam_category: examCategory,
-      funding_source: fundingSource, recruitment_target: recruitmentTarget,
+      funding_source: fundingSource, recruitment_targets: recruitmentTargets,
       sort_by: sortBy, sort_order: sortOrder,
     }),
     enabled: !selectionMode,
@@ -234,7 +247,7 @@ export default function ShiyePositionList() {
     city,
     location,
     funding_sources: fundingSource ? [fundingSource] : [],
-    recruitment_targets: recruitmentTarget ? [recruitmentTarget] : [],
+    recruitment_targets: recruitmentTargets,
     post_natures: postNatures,
     preferred_post_natures: postNatures,
     excluded_risk_tags: excludedRiskTags,
@@ -258,7 +271,7 @@ export default function ShiyePositionList() {
     setMatchConditions(null);
     setPostNatures([]);
     setFundingSource(undefined);
-    setRecruitmentTarget(undefined);
+    setRecruitmentTargets([]);
     setExcludedRiskTags([]);
     setRecommendationTier(undefined);
     clearSelectedRowKeys();
@@ -270,7 +283,7 @@ export default function ShiyePositionList() {
     setLocation(undefined);
     setPostNatures([]);
     setFundingSource(undefined);
-    setRecruitmentTarget(undefined);
+    setRecruitmentTargets([]);
     setExcludedRiskTags([]);
     setRecommendationTier(undefined);
     resetToFirstPage();
@@ -303,7 +316,7 @@ export default function ShiyePositionList() {
     if (selectionMode && matchConditions) {
       void handleMatch(matchConditions);
     }
-  }, [selectionMode, matchYear, params.page, params.page_size, sortBy, sortOrder, city, location, fundingSource, recruitmentTarget, postNatures, excludedRiskTags, recommendationTier]);
+  }, [selectionMode, matchYear, params.page, params.page_size, sortBy, sortOrder, city, location, fundingSource, recruitmentTargets, postNatures, excludedRiskTags, recommendationTier]);
 
   const handleGenerateReport = async () => {
     if (selectedRowKeys.length === 0) {
@@ -497,9 +510,9 @@ export default function ShiyePositionList() {
       `岗位性质：${postNatures.map(formatFilterLabel).join(' / ')}`,
     );
   }
-  if (recruitmentTarget) {
+  if (recruitmentTargets.length) {
     activeSelectionFilterTags.push(
-      `招聘对象：${formatFilterLabel(recruitmentTarget)}`,
+      `招聘对象：${recruitmentTargets.map(formatFilterLabel).join(' / ')}`,
     );
   }
   if (fundingSource) {
@@ -561,9 +574,14 @@ export default function ShiyePositionList() {
       )}
       {!selectionMode && (
         <Select
-          placeholder="招聘对象" value={recruitmentTarget} allowClear style={{ width: 120 }}
-          onChange={(v) => { setRecruitmentTarget(v); resetToFirstPage(); }}
-          options={(filterOptions?.recruitment_targets || []).map((r: string) => ({ value: r, label: r }))}
+          mode="multiple"
+          placeholder="招聘对象"
+          value={recruitmentTargets}
+          allowClear
+          maxTagCount="responsive"
+          style={{ minWidth: 220, maxWidth: 340 }}
+          onChange={(v) => { setRecruitmentTargets(v || []); resetToFirstPage(); }}
+          options={buildSelectionFilterOptions(filterOptions?.recruitment_targets)}
         />
       )}
       {!selectionMode && (
@@ -618,11 +636,13 @@ export default function ShiyePositionList() {
                 )}
               />
               <Select
+                mode="multiple"
                 placeholder="招聘对象限制"
-                value={recruitmentTarget}
+                value={recruitmentTargets}
                 allowClear
-                style={{ width: 160 }}
-                onChange={(v) => { setRecruitmentTarget(v === '不限' ? undefined : v); resetToFirstPage(); }}
+                maxTagCount="responsive"
+                style={{ width: 220 }}
+                onChange={(v) => { setRecruitmentTargets(v || []); resetToFirstPage(); }}
                 options={buildSelectionFilterOptions(
                   shiyeFilterOptions?.recruitment_targets,
                   { excludeUnlimited: true },
