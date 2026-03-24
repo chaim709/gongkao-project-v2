@@ -35,3 +35,43 @@ htmlcov/
 
 # Docker 数据卷
 pgdata/
+
+# 本地 AI/IDE 工具目录（非业务代码）
+.adal/
+.agent/
+.agents/
+.augment/
+.claude/
+.codebuddy/
+.commandcode/
+.continue/
+.crush/
+.factory/
+.goose/
+.iflow/
+.junie/
+.kilocode/
+.kiro/
+.kode/
+.mcpjam/
+.mux/
+.neovate/
+.openhands/
+.pi/
+.pochi/
+.qoder/
+.qwen/
+.roo/
+.trae/
+.vibe/
+.windsurf/
+.zencoder/
+
+# 本地调试/快照/备份
+tmp-shots/
+backups/
+
+# 本地技能软链接目录
+skills/
+skills-lock.json
+install_skills.sh
